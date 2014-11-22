@@ -45,12 +45,12 @@ unsigned long int zeroCrossTimeDifference =  0; // The calculated micros() betwe
 volatile byte zeroCrossTrigger = 0;
 byte zeroCrossPin = 2;
 
-// BoardDetectValues
-byte boardDetectPin = A5;
-short boardDetectValue = 0;
-short oldBoardDetectValue = 0;
+// Shift Register Detect Variables
+byte shiftRegisterDetectPin = A5;
+short shiftRegisterDetectValue = 0;
+short oldShiftRegisterDetectValue = 0;
 
-// Packet Variables
+// Serial Packet Variables
 const byte endOfPacketByte = 0xFF; // ASCII value 255 is our end of command byte
 byte packetBuffer[MAX_PACKET_SIZE]; // buffer for serial data
 byte packetBufferLength = 0;
@@ -75,6 +75,10 @@ byte numberOfChannels = 0;
 byte *pwmValues = 0;
 byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 
+// Dimming variables
+volatile byte dimmingTimerTrigger = 0;
+byte dimmingFrequency = 62; // 62 Hz is the minimum update frequency
+
 #pragma mark - Method Declarations
 
 // Packet Processing
@@ -88,9 +92,9 @@ void turnOffChannel(byte channelNumber);
 void setBrightnessForChannel(byte channelNumber, byte brightness);
 bool isChannelNumberValid(byte channelNumber);
 
-// Board Detections
-void boardDetect();
-byte boardDetectValueIsNearValueWithRange(int compareValue = 512, int range = 10);
+// Shift Register Detection Methods
+void detectShiftRegisters();
+byte shiftRegisterDetectValueIsNearValueWithRange(int compareValue = 512, int range = 10);
 
 // Zero Cross
 void zeroCrossDetect();
@@ -100,6 +104,10 @@ void handleShiftRegisterTimerInterrupt();
 void updateInterruptClock();
 void initShiftRegisterInterruptTimer();
 void printInterruptLoad();
+
+// Dimming
+void initDimmingInterruptTimer();
+void handleDimming();
 
 #pragma mark - Setup And Main Loop
 
@@ -121,7 +129,7 @@ void setup()
     pinMode(MOSI, OUTPUT);
     pinMode(SCK, OUTPUT);
     pinMode(SS, OUTPUT); // Warning: if the SS pin ever becomes a LOW INPUT then SPI automatically switches to Slave, so the data direction of the SS pin MUST be kept as OUTPUT.
-    pinMode(boardDetectPin, INPUT);
+    pinMode(shiftRegisterDetectPin, INPUT);
     pinMode(zeroCrossPin, INPUT);
     
     // Initialize pin states
@@ -142,7 +150,7 @@ void setup()
     SPCR |= _BV(SPE);
     SPI.begin();
     
-    // Initialize shift Register Interrupt Timer
+    // Initialize shift Register Interrupt Timer (timer 1)
     if(isInterruptLoadAcceptable())
     {
         initShiftRegisterInterruptTimer();
@@ -153,8 +161,11 @@ void setup()
         cli(); //Disable interrupts
     }
     
-    // Setup the zero cross interrupt
-    attachInterrupt(0, zeroCrossDetect, FALLING); // This uses zeroCrossPin
+    // Init timer 2 for dimming updates
+    initDimmingInterruptTimer();
+    
+    // Setup the zero cross interrupt which uses zeroCrossPin (zeroCrossPin can't be changed though)
+    attachInterrupt(0, zeroCrossDetect, FALLING);
     
 #ifdef SERIAL_PRINTING
     Serial.print("LD:");
@@ -165,27 +176,28 @@ void setup()
 
 void loop()
 {
-    setBrightnessForChannel(0, 150); // 100 - 255 for some reason
+    setBrightnessForChannel(0, 150); // ???: Brightness goes from 100 - 255 for some reason
     setBrightnessForChannel(1, 190);
     
-    // Detect MOSFET/TRIAC boards
-    if(numberOfShiftRegisters == 0)
+    // Handle Shift Register Timer Interrupt
+    if(shiftRegisterTimerTrigger == 1)
     {
-        boardDetect();
+        handleShiftRegisterTimerInterrupt();
+        shiftRegisterTimerTrigger = 0;
     }
     
     // Handle AC Zero Cross
-    if(zeroCrossTrigger)
+    if(zeroCrossTrigger == 1)
     {
         handleZeroCross();
         zeroCrossTrigger = 0;
     }
     
-    // Handle Shift Register Timer Interrupt
-    if(shiftRegisterTimerTrigger)
+    // Handle dimming timer interrupt
+    if(dimmingTimerTrigger == 1)
     {
-        handleShiftRegisterTimerInterrupt();
-        shiftRegisterTimerTrigger = 0;
+        handleDimming();
+        dimmingTimerTrigger = 0;
     }
     
     // Handle XBee data
@@ -216,6 +228,12 @@ void loop()
                 clearPacketBuffer();
             }
         }
+    }
+    
+    // Detect MOSFET/TRIAC boards
+    if(numberOfShiftRegisters == 0)
+    {
+        detectShiftRegisters();
     }
 }
 
@@ -391,50 +409,50 @@ bool isChannelNumberValid(byte channelNumber)
 
 #pragma mark - Shift Register/Board Detection
 
-void boardDetect()
+void detectShiftRegisters()
 {
     // Read in the values for the board detect
-    oldBoardDetectValue = boardDetectValue;
-    boardDetectValue = analogRead(boardDetectPin);
+    oldShiftRegisterDetectValue = shiftRegisterDetectValue;
+    shiftRegisterDetectValue = analogRead(shiftRegisterDetectPin);
     
     // See if there has been a change in the boardDetect Value
-    if(abs(boardDetectValue - oldBoardDetectValue) > 7)
+    if(abs(shiftRegisterDetectValue - oldShiftRegisterDetectValue) > 7)
     {
         // Set the number of shift registers appropriatly
-        if(boardDetectValueIsNearValueWithRange(0))
+        if(shiftRegisterDetectValueIsNearValueWithRange(0))
         {
             numberOfShiftRegisters = 0;
             //Serial.println("NO BOARDS DETECTED! CHECK THE JUMPER!");
         }
-        else if(boardDetectValueIsNearValueWithRange(1024 / 2))
+        else if(shiftRegisterDetectValueIsNearValueWithRange(1024 / 2))
         {
             numberOfShiftRegisters = 1;
         }
-        else if(boardDetectValueIsNearValueWithRange(1024 / 3))
+        else if(shiftRegisterDetectValueIsNearValueWithRange(1024 / 3))
         {
             numberOfShiftRegisters = 2;
         }
-        else if(boardDetectValueIsNearValueWithRange(1024 / 4))
+        else if(shiftRegisterDetectValueIsNearValueWithRange(1024 / 4))
         {
             numberOfShiftRegisters = 3;
         }
-        else if(boardDetectValueIsNearValueWithRange(1024 / 5))
+        else if(shiftRegisterDetectValueIsNearValueWithRange(1024 / 5))
         {
             numberOfShiftRegisters = 4;
         }
-        else if(boardDetectValueIsNearValueWithRange(1024 / 6))
+        else if(shiftRegisterDetectValueIsNearValueWithRange(1024 / 6))
         {
             numberOfShiftRegisters = 5;
         }
-        else if(boardDetectValueIsNearValueWithRange(1024 / 7))
+        else if(shiftRegisterDetectValueIsNearValueWithRange(1024 / 7))
         {
             numberOfShiftRegisters = 6;
         }
-        else if(boardDetectValueIsNearValueWithRange(1024 / 8))
+        else if(shiftRegisterDetectValueIsNearValueWithRange(1024 / 8))
         {
             numberOfShiftRegisters = 7;
         }
-        else if(boardDetectValueIsNearValueWithRange(1024 / 9))
+        else if(shiftRegisterDetectValueIsNearValueWithRange(1024 / 9))
         {
             numberOfShiftRegisters = 8;
         }
@@ -479,17 +497,17 @@ void boardDetect()
     }
 }
 
-byte boardDetectValueIsNearValueWithRange(int compareValue, int range)
+byte shiftRegisterDetectValueIsNearValueWithRange(int compareValue, int range)
 {
-    if(boardDetectValue >= compareValue - range && boardDetectValue <= compareValue + range)
+    if(shiftRegisterDetectValue >= compareValue - range && shiftRegisterDetectValue <= compareValue + range)
     {
         return 1;
     }
-    else if(compareValue < range && boardDetectValue < range)
+    else if(compareValue < range && shiftRegisterDetectValue < range)
     {
         return 1;
     }
-    else if(compareValue > 1024 - range && boardDetectValue > 1024 - range)
+    else if(compareValue > 1024 - range && shiftRegisterDetectValue > 1024 - range)
     {
         return 1;
     }
@@ -599,7 +617,7 @@ void initShiftRegisterInterruptTimer()
     bitClear(TCCR1B, CS11);
     bitClear(TCCR1B, CS12);
     
-    // The timer will generate an interrupt when the value we load in OCR1A matches the timer value. One period of the timer, from 0 to OCR1A will therefore be (OCR1A+1)/(timer clock frequency). We want the frequency of the timer to be (LED frequency)*(number of brightness levels). So the value we want for OCR1A is: timer clock frequency/(LED frequency * number of bightness levels)-1
+    // The timer will generate an interrupt when the value we load in OCR1A matches the timer value. One period of the timer, from 0 to OCR1A will therefore be (OCR1A + 1) / timer clock frequency. We want the frequency of the timer to be (pwmFrequency) * (maxBrightness). So the value we want for OCR1A to be: timer clock frequency / (pwmFrequency * maxBrightness) - 1
     OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
     
     // Enable the timer interrupt, see datasheet  15.11.8)
@@ -627,70 +645,6 @@ bool isInterruptLoadAcceptable()
         return 1;
     }
 }
-
-//Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
-/*ISR(TIMER2_COMPA_vect) {
- //handleShiftRegisterTimerInterrupt();
- shiftRegisterTimerTrigger = 1;
- }*/
-
-/*void initTimer2()
-{
-    // Configure timer2 in CTC mode: clear the timer on compare match. See the Atmega328 Datasheet 15.9.2 for an explanation on CTC mode. See table 17-8 in the datasheet.
-    bitClear(TCCR2B, WGM22);
-    bitSet(TCCR2A, WGM21);
-    bitClear(TCCR2A, WGM20);
-    
-    // Select clock source: internal I/O clock, calculate most suitable prescaler. This is only an 8 bit timer, so choose the prescaler so that OCR2A fits in 8 bits. See table 15-5 in the datasheet.
-    int compare_value = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1)) - 1);
-    if(compare_value <= 255)
-    {
-        prescaler = 1;
-        bitClear(TCCR2B, CS22);
-        bitClear(TCCR2B, CS21);
-        bitClear(TCCR2B, CS20);
-    }
-    else if(compare_value / 8 <= 255)
-    {
-        prescaler = 8;
-        bitClear(TCCR2B, CS22);
-        bitSet(TCCR2B, CS21);
-        bitClear(TCCR2B, CS20);
-    }
-    else if(compare_value / 32 <= 255)
-    {
-        prescaler = 32;
-        bitClear(TCCR2B, CS22);
-        bitSet(TCCR2B, CS21);
-        bitSet(TCCR2B, CS20);
-    }
-    else if(compare_value / 64 <= 255)
-    {
-        prescaler = 64;
-        bitSet(TCCR2B, CS22);
-        bitClear(TCCR2B, CS21);
-        bitClear(TCCR2B, CS20);
-    }
-    else if(compare_value / 128 <= 255)
-    {
-        prescaler = 128;
-        bitSet(TCCR2B, CS22);
-        bitClear(TCCR2B, CS21);
-        bitSet(TCCR2B, CS20);
-    }
-    else if(compare_value / 256 <= 255)
-    {
-        prescaler = 256;
-        bitSet(TCCR2B, CS22);
-        bitSet(TCCR2B, CS21);
-        bitClear(TCCR2B, CS20);
-    }
-    
-    // The timer will generate an interrupt when the value we load in OCR2A matches the timer value. One period of the timer, from 0 to OCR2A will therefore be (OCR2A+1)/(timer clock frequency). We want the frequency of the timer to be (LED frequency)*(number of brightness levels). So the value we want for OCR2A is: timer clock frequency/(LED frequency * number of bightness levels)-1
-    OCR2A = round(((float)F_CPU / (float)prescaler) / (pwmFrequency * ((float)maxBrightness + 1)) - 1);
-    // Enable the timer interrupt, see datasheet  15.11.8)
-    bitSet(TIMSK2, OCIE2A);
-}*/
 
 void printInterruptLoad()
 {
@@ -752,4 +706,84 @@ void printInterruptLoad()
     
     //Re-enable Interrupt
     bitSet(TIMSK1, OCIE1A);
+}
+
+#pragma mark - Dimming
+
+//Install the Interrupt Service Routine (ISR) for Timer2 compare and match A.
+ISR(TIMER2_COMPA_vect)
+{
+    dimmingTimerTrigger = 1;
+}
+
+void initDimmingInterruptTimer()
+{
+    // Configure timer2 in CTC mode: clear the timer on compare match. See the Atmega328 Datasheet 15.9.2 for an explanation on CTC mode. See table 17-8 in the datasheet.
+    bitClear(TCCR2B, WGM22);
+    bitSet(TCCR2A, WGM21);
+    bitClear(TCCR2A, WGM20);
+    
+    // Select clock source: internal I/O clock, calculate most suitable prescaler. This is only an 8 bit timer, so choose the prescaler so that OCR2A fits in 8 bits. See table 15-5 in the datasheet.
+    unsigned long compare_value = round((float)F_CPU / dimmingFrequency) - 1;
+    short dimmingPrescaler = 0;
+    if(compare_value <= 255)
+    {
+        dimmingPrescaler = 1;
+        bitClear(TCCR2B, CS22);
+        bitClear(TCCR2B, CS21);
+        bitSet(TCCR2B, CS20);
+    }
+    else if(compare_value / 8 <= 255)
+    {
+        dimmingPrescaler = 8;
+        bitClear(TCCR2B, CS22);
+        bitSet(TCCR2B, CS21);
+        bitClear(TCCR2B, CS20);
+    }
+    else if(compare_value / 32 <= 255)
+    {
+        dimmingPrescaler = 32;
+        bitClear(TCCR2B, CS22);
+        bitSet(TCCR2B, CS21);
+        bitSet(TCCR2B, CS20);
+    }
+    else if(compare_value / 64 <= 255)
+    {
+        dimmingPrescaler = 64;
+        bitSet(TCCR2B, CS22);
+        bitClear(TCCR2B, CS21);
+        bitClear(TCCR2B, CS20);
+    }
+    else if(compare_value / 128 <= 255)
+    {
+        dimmingPrescaler = 128;
+        bitSet(TCCR2B, CS22);
+        bitClear(TCCR2B, CS21);
+        bitSet(TCCR2B, CS20);
+    }
+    else if(compare_value / 256 <= 255)
+    {
+        dimmingPrescaler = 256;
+        bitSet(TCCR2B, CS22);
+        bitSet(TCCR2B, CS21);
+        bitClear(TCCR2B, CS20);
+    }
+    else if(compare_value / 1024 <= 255)
+    {
+        dimmingPrescaler = 1024;
+        bitSet(TCCR2B, CS22);
+        bitSet(TCCR2B, CS21);
+        bitSet(TCCR2B, CS20);
+    }
+    
+    // The timer will generate an interrupt when the value we load in OCR2A matches the timer value. One period of the timer, from 0 to OCR2A will therefore be (OCR2A + 1) / timer clock frequency. So the value we want for OCR2A to be: timer clock frequency / dimmingFrequency - 1
+    OCR2A = round((float)F_CPU / (float)dimmingPrescaler / dimmingFrequency) - 1;
+    
+    // Enable the timer interrupt, see datasheet  15.11.8)
+    bitSet(TIMSK2, OCIE2A);
+}
+
+void handleDimming()
+{
+    
 }
