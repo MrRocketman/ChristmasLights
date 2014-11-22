@@ -33,7 +33,7 @@ const byte boardID = 0x01;
 //      turnOff;
 #define add_one_pin_to_byte(sendbyte, counter, tempPWMValues) \
 { \
-unsigned char pwmval=*tempPWMValues; \
+byte pwmval=*tempPWMValues; \
 asm volatile ("cp %0, %1" : /* No outputs */ : "r" (counter), "r" (pwmval): ); \
 asm volatile ("ror %0" : "+r" (sendbyte) : "r" (sendbyte) : ); 	\
 }
@@ -75,11 +75,13 @@ float pwmFrequency = 120;
 byte maxBrightness = 254;
 byte numberOfShiftRegisters = 0;
 byte numberOfChannels = 0;
-float *pwmValues = 0;
+byte *pwmValues = 0;
 byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 
 // Dimming variables
-float *pwmChangePerEachPWMCycle = 0;
+float *brightnessChangePerDimmingCycle = 0;
+byte *dimmingUpdatesCount = 0;
+byte *dimmingUpdatesTotal = 0;
 
 #pragma mark - Method Declarations
 
@@ -104,9 +106,11 @@ void zeroCrossDetect();
 
 // ShiftRegister
 void handleShiftRegisterTimerInterrupt();
-void updateShiftRegisterTimerInterruptClock();
 void initShiftRegisterInterruptTimer();
 void printInterruptLoad();
+
+// Dimming
+void dimmingUpdate();
 
 #pragma mark - Setup And Main Loop
 
@@ -172,7 +176,7 @@ void setup()
 
 void loop()
 {
-    setBrightnessForChannel(0, 150); // ???: Brightness goes from 100 - 255 for some reason
+    //setBrightnessForChannel(0, 150); // ???: Brightness goes from 100 - 255 for some reason
     setBrightnessForChannel(1, 190);
     
     // Handle Shift Register Timer Interrupt
@@ -395,17 +399,19 @@ void setBrightnessForChannel(byte channelNumber, byte brightness)
 
 void fadeChannelNumberToBrightnessWithMillisecondsDuration(byte channelNumber, byte brightness, unsigned long milliseconds)
 {
-    // Set the pwmChangePerEachPWMCycle if the channel is valid
+    // Set the brightnessChangePerDimmingCycle if the channel is valid
     if(isChannelNumberValid(channelNumber))
     {
-        pwmChangePerEachPWMCycle[channelNumber] = brightness / (milliseconds / (1000.0 / pwmFrequency));
+        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency);
+        dimmingUpdatesTotal[channelNumber] = dimmingUpdatesCount[channelNumber];
+        brightnessChangePerDimmingCycle[channelNumber] = (float)brightness / dimmingUpdatesCount[channelNumber];
     }
     
 #ifdef DEBUG
     Serial.print("ch:");
     Serial.print(channelNumber);
     Serial.print(" p:");
-    Serial.println(pwmChangePerEachPWMCycle[channelNumber]);
+    Serial.println(brightnessChangePerDimmingCycle[channelNumber]);
 #endif
 }
 
@@ -483,13 +489,21 @@ void detectShiftRegisters()
         if(isInterruptLoadAcceptable())
         {
             // Resize pwmValues array
-            pwmValues = (float *)realloc(pwmValues, numberOfChannels);
+            pwmValues = (byte *)realloc(pwmValues, numberOfChannels);
             // Initialize all pwmValues to 0
             memset(pwmValues, 0, numberOfChannels);
-            // Resize pwmChangePerEachPWMCycle array
-            pwmChangePerEachPWMCycle = (float *)realloc(pwmChangePerEachPWMCycle, numberOfChannels);
-            // Initialize all pwmChangePerEachPWMCycle to 0
-            memset(pwmChangePerEachPWMCycle, 0, numberOfChannels);
+            // Resize brightnessChangePerDimmingCycle array
+            brightnessChangePerDimmingCycle = (float *)realloc(brightnessChangePerDimmingCycle, numberOfChannels);
+            // Initialize all brightnessChangePerDimmingCycle to 0
+            memset(brightnessChangePerDimmingCycle, 0, numberOfChannels);
+            // Resize dimmingUpdatesCount array
+            dimmingUpdatesCount = (byte *)realloc(dimmingUpdatesCount, numberOfChannels);
+            // Initialize all dimmingUpdatesCount to 0
+            memset(dimmingUpdatesCount, 0, numberOfChannels);
+            // Resize dimmingUpdatesTotal array
+            dimmingUpdatesTotal = (byte *)realloc(dimmingUpdatesTotal, numberOfChannels);
+            // Initialize all dimmingUpdatesTotal to 0
+            memset(dimmingUpdatesTotal, 0, numberOfChannels);
             // Re-enable interrupt
             sei();
         }
@@ -500,6 +514,8 @@ void detectShiftRegisters()
             // Re-enable interrupt
             sei();
         }
+        
+        fadeChannelNumberToBrightnessWithMillisecondsDuration(0, 255, 2000);
         
         #ifdef DEBUG
             Serial.print("bd:");
@@ -564,7 +580,10 @@ void handleZeroCross()
     }
     
     // Update the shift register interrupt timer
-    updateShiftRegisterTimerInterruptClock();
+    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
+    
+    // Handle AC dimming (fading over time)
+    dimmingUpdate();
 }
 
 #pragma mark - Shift Register
@@ -596,19 +615,10 @@ void initShiftRegisterInterruptTimer()
     bitSet(TIMSK1, OCIE1A);
 }
 
-void updateShiftRegisterTimerInterruptClock()
-{
-    // Reset the shiftRegisterCurrentBrightnessIndex
-    shiftRegisterCurrentBrightnessIndex = maxBrightness;
-    
-    // Update the timer1 interrupt counter
-    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
-}
-
 void handleShiftRegisterTimerInterrupt()
 {
     // Define a pointer that will be used to access the values for each output. Let it point one past the last value, because it is decreased before it is used.
-    float *tempPWMValues = &pwmValues[numberOfChannels];
+    byte *tempPWMValues = &pwmValues[numberOfChannels];
     
     // Write shift register latch clock low
     bitClear(*latchPort, latchBit);
@@ -647,17 +657,10 @@ void handleShiftRegisterTimerInterrupt()
     {
         shiftRegisterCurrentBrightnessIndex --;
     }
-    // Reset the brightness index if we've gone below 0
     else
     {
-        shiftRegisterCurrentBrightnessIndex = maxBrightness;
-        
-        // Handle the dimming
-        // Do a whole shift register at once. This unrolls the loop for extra speed
-        for(byte i = 0; i < numberOfChannels; i ++)
-        {
-            pwmValues[i] = pwmValues[i] + pwmChangePerEachPWMCycle[i];
-        }
+        // Handle DC dimming (fading over time)
+        dimmingUpdate();
     }
 }
 
@@ -743,4 +746,24 @@ void printInterruptLoad()
     
     //Re-enable Interrupt
     bitSet(TIMSK1, OCIE1A);
+}
+
+#pragma mark - Dimming
+
+void dimmingUpdate()
+{
+    // Reset the brightness index if we've gone below 0
+    shiftRegisterCurrentBrightnessIndex = maxBrightness;
+    
+    // Handle the dimming over time for each channel
+    for(byte i = 0; i < numberOfChannels; i ++)
+    {
+        // Update a channel if it is still dimming
+        if(dimmingUpdatesCount[i] > 0)
+        {
+            
+            pwmValues[i] = (dimmingUpdatesTotal[i] - dimmingUpdatesCount[i]) * brightnessChangePerDimmingCycle[i];
+            dimmingUpdatesCount[i] --;
+        }
+    }
 }
