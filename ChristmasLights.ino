@@ -11,8 +11,7 @@
 #endif
 
 // Board specific variables! Change these per board!
-#define AC_DIMMING 1 // set to 0 for DC dimming, 1 for AC dimming
-const byte boardID = 0x04;
+const byte boardID = 0x01;
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 // Don't change any variables below here unless you really, really know what you are doing//
@@ -52,16 +51,14 @@ const uint8_t clockBit = digital_pin_to_bit_PGM_ct[SCK];
 const uint8_t dataBit = digital_pin_to_bit_PGM_ct[MOSI];
 
 // Shift Register
-const bool invertOutputs = 0; // if invertOutputs is 1, outputs will be active low. Usefull for common anode RGB led's.
-const bool balancedLoad = false;
-const int timerToUse = 1; // Can also be timer 2 or timer 3
+const int timerToUse = 1; // Can also be timer 2 or timer 3. Timer1 is the best, timer3 works on Leonardo or Mega, timer2 is the worst.
 int prescaler;
 float pwmFrequency = 120;
 byte maxBrightness = 254;
 byte numberOfShiftRegisters = 0;
 byte numberOfChannels = 0;
 byte *pwmValues = 0;
-byte brightnessCounter = 0;
+volatile byte brightnessCounter = maxBrightness;
 
 // workaround for a bug in WString.h
 #define F(string_literal) (reinterpret_cast<const __FlashStringHelper *>(PSTR(string_literal)))
@@ -76,10 +73,12 @@ byte brightnessCounter = 0;
     #endif
 #endif
 
-// The macro below uses 3 instructions per pin to generate the byte to transfer with SPI
-// Retreive duty cycle setting from memory (ldd, 2 clockcycles)
-// Compare with the counter (cp, 1 clockcycle) --> result is stored in carry
-// Use the rotate over carry right to shift the compare result into the byte. (1 clockcycle).
+// The macro below uses 3 instructions per pin to generate the byte to transfer with SPI. Retreive duty cycle setting from memory (ldd, 2 clockcycles). Compare with the counter (cp, 1 clockcycle) --> result is stored in carry. Use the rotate over carry right to shift the compare result into the byte. (1 clockcycle).
+// TL;DR super fast way of doing the following
+// if(counter < pwmVal)
+//      turnOn;
+// else
+//      turnOff;
 #define add_one_pin_to_byte(sendbyte, counter, ledPtr) \
 { \
 unsigned char pwmval=*ledPtr; \
@@ -110,23 +109,6 @@ void zeroCrossDetect();
 // ShiftRegister
 void handleInterrupt();
 void updateInterruptClock();
-// See table  11-1 for the interrupt vectors */
-#if (timerToUse == 3)
-//Install the Interrupt Service Routine (ISR) for Timer3 compare and match A.
-ISR(TIMER3_COMPA_vect) {
-    handleInterrupt();
-}
-#elif (timerToUse == 2)
-//Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
-ISR(TIMER2_COMPA_vect) {
-    handleInterrupt();
-}
-#else
-//Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
-ISR(TIMER1_COMPA_vect) {
-    handleInterrupt();
-}
-#endif
 
 void initTimer1();
 #if defined(OCR3A)
@@ -170,6 +152,9 @@ void setup()
     digitalWrite(MOSI, LOW);
     digitalWrite(SS, HIGH);
     
+    // Serial setup
+    Serial.begin(57600); // Xbee doesn't like to run any faster than 57600 for sustained throughput!
+    
     // SPI Setup
     SPI.setBitOrder(LSBFIRST);
     SPI.setClockDivider(SPI_CLOCK_DIV4);
@@ -180,20 +165,23 @@ void setup()
     SPCR |= _BV(SPE);
     SPI.begin();
     
-    if(isLoadTooHigh())
+    if(isInterruptLoadAcceptable())
     {
         if(timerToUse == 1)
         {
+            Serial.println("Timer1");
             initTimer1();
         }
 #if defined(USBCON)
         else if(timerToUse == 3)
         {
+            Serial.println("Timer3");
             initTimer3();
         }
 #else
         else if(timerToUse == 2)
         {
+            Serial.println("Timer2");
             initTimer2();
         }
 #endif
@@ -203,9 +191,6 @@ void setup()
         Serial.println(F("Interrupts are disabled because load is too high."));
         cli(); //Disable interrupts
     }
-    
-    // Serial setup
-    Serial.begin(57600); // Xbee doesn't like to run any faster than 57600 for sustained throughput!
     
     // Setup the zero cross interrupt
     attachInterrupt(0, zeroCrossDetect, FALLING); // This uses zeroCrossPin
@@ -230,6 +215,11 @@ void loop()
     {
         handleZeroCross();
         zeroCrossTrigger = 0;
+    }
+    
+    if(digitalRead(zeroCrossPin) == 0)
+    {
+        Serial.println(micros());
     }
     
     // Handle XBee data
@@ -478,7 +468,7 @@ void boardDetect()
         numberOfChannels = numberOfShiftRegisters * 8;
         
         // Check if new amount will not result in deadlock
-        if(isLoadTooHigh())
+        if(isInterruptLoadAcceptable())
         {
             // Resize pwmValues array
             pwmValues = (byte *)realloc(pwmValues, numberOfChannels);
@@ -494,6 +484,9 @@ void boardDetect()
             // Re-enable interrupt
             sei();
         }
+        
+        setBrightnessForChannel(0, 50);
+        setBrightnessForChannel(1, 128);
         
         #ifdef DEBUG
             Serial.print("bd:");
@@ -546,77 +539,18 @@ void handleZeroCross()
     currentZeroCrossTime = micros();
     zeroCrossTimeDifference = currentZeroCrossTime - previousZeroCrossTime;
     pwmFrequency = 1.0 / (zeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS); // Divide by 2 to get 60
-    ShiftRegisterPWM.updateInterruptClock();
+    updateInterruptClock();
 }
 
 #pragma mark - Shift Register
 
-void handleInterrupt()
-{
-    sei(); //enable interrupt nesting to prevent disturbing other interrupt functions (servo's for example).
-    
-    // Define a pointer that will be used to access the values for each output.
-    // Let it point one past the last value, because it is decreased before it is used.
-    unsigned char *ledPtr = &pwmValues[numberOfChannels];
-    
-    // Write shift register latch clock low
-    bitClear(*latchPort, latchBit);
-    unsigned char counter = brightnessCounter;
-    
-    // Write bogus bit to the SPI, because in the loop there is a receive before send.
-    SPDR = 0;
-    // Do a whole shift register at once. This unrolls the loop for extra speed
-    for(unsigned char i = numberOfShiftRegisters; i > 0; --i)
-    {
-        unsigned char sendbyte;  // no need to initialize, all bits are replaced
-        if(balancedLoad)
-        {
-            counter += 8; // distribute the load by using a shifted counter per shift register
-        }
-        
-/*#ifdef AC_DIMMING
-        
-#endif*/
-        
-        add_one_pin_to_byte(sendbyte, counter, --ledPtr);
-        add_one_pin_to_byte(sendbyte, counter,  --ledPtr);
-        add_one_pin_to_byte(sendbyte, counter,  --ledPtr);
-        add_one_pin_to_byte(sendbyte, counter,  --ledPtr);
-        
-        add_one_pin_to_byte(sendbyte, counter,  --ledPtr);
-        add_one_pin_to_byte(sendbyte, counter,  --ledPtr);
-        add_one_pin_to_byte(sendbyte, counter,  --ledPtr);
-        add_one_pin_to_byte(sendbyte, counter,  --ledPtr);
-        
-        // wait for last send to finish and retreive answer. Retreive must be done, otherwise the SPI will not work.
-        while (!(SPSR & _BV(SPIF)));
-        
-        if(invertOutputs)
-        {
-            sendbyte = ~sendbyte; // Invert the byte if needed.
-        }
-        SPDR = sendbyte; // Send the byte to the SPI
-    }
-    // wait for last send to complete.
-    while (!(SPSR & _BV(SPIF)));
-    
-    // Write shift register latch clock high
-    bitSet(*latchPort, latchBit);
-    
-    if(brightnessCounter < maxBrightness)
-    {
-        // Increase the counter
-        brightnessCounter++;
-    }
-    else
-    {
-        // Reset counter if it maximum brightness has been reached
-        brightnessCounter = 0;
-    }
-}
-
 void updateInterruptClock()
 {
+    // Reset the brightnessCounter
+    brightnessCounter = maxBrightness;
+    //Serial.print("z:");
+    ///Serial.println(micros());
+    
     if(timerToUse == 1)
     {
         OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
@@ -634,7 +568,78 @@ void updateInterruptClock()
 #endif
 }
 
-bool isLoadTooHigh()
+// See table  11-1 for the interrupt vectors
+#if (timerToUse == 3)
+//Install the Interrupt Service Routine (ISR) for Timer3 compare and match A.
+ISR(TIMER3_COMPA_vect) {
+    handleInterrupt();
+}
+#elif (timerToUse == 2)
+//Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
+ISR(TIMER2_COMPA_vect) {
+    handleInterrupt();
+}
+#else
+//Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
+ISR(TIMER1_COMPA_vect) {
+    handleInterrupt();
+}
+#endif
+
+void handleInterrupt()
+{
+    //sei(); //enable interrupt nesting to prevent disturbing other interrupt functions (servo's for example).
+    
+    // Define a pointer that will be used to access the values for each output.
+    // Let it point one past the last value, because it is decreased before it is used.
+    unsigned char *ledPtr = &pwmValues[numberOfChannels];
+    
+    // Write shift register latch clock low
+    bitClear(*latchPort, latchBit);
+    
+    // Write bogus bit to the SPI, because in the loop there is a receive before send.
+    SPDR = 0;
+    // Do a whole shift register at once. This unrolls the loop for extra speed
+    for(unsigned char i = numberOfShiftRegisters; i > 0; --i)
+    {
+        unsigned char sendbyte;  // no need to initialize, all bits are replaced
+        
+        add_one_pin_to_byte(sendbyte, brightnessCounter, --ledPtr);
+        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
+        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
+        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
+        
+        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
+        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
+        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
+        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
+        
+        // wait for last send to finish and retreive answer. Retreive must be done, otherwise the SPI will not work.
+        while (!(SPSR & _BV(SPIF)));
+        
+        SPDR = sendbyte; // Send the byte to the SPI
+    }
+    // wait for the send to complete.
+    while (!(SPSR & _BV(SPIF)));
+    
+    // Write shift register latch clock high
+    bitSet(*latchPort, latchBit);
+    
+    if(brightnessCounter > 0)
+    {
+        // Decrease the counter. This is the key to getting AC dimming since triacs stay on until the next zero cross. So we need to turn on after a delay rather than turn on immediately and turn off after a delay
+        brightnessCounter --;
+    }
+    /*else
+    {
+        // Reset counter if it maximum brightness has been reached
+        brightnessCounter = 0;
+        Serial.print("i:");
+        Serial.println(micros());
+    }*/
+}
+
+bool isInterruptLoadAcceptable()
 {
     // This function calculates if the interrupt load would become higher than 0.9 and prints an error if it would.
     // This is with inverted outputs, which is worst case. Without inverting, it would be 42 per register.
