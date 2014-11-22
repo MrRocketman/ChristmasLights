@@ -9,10 +9,10 @@
 // 0x01     0x05        0x10(Ch #) 0x5F(Dim)                                                        0xFF        Set Brightness for 1 channel
 // 0x01     0x06        0x5F(Dim)                                                                   0xFF        Set Brightness for all channels
 //
-// 0x01     0x07        0x10(Ch #) 0x1F(Start Dim) 0xFF(End Dim) 0xEE(Time - 0.01 sec per bit)      0xFF        Fade channel over time (hundreths)
-// 0x01     0x08        0x10(Ch #) 0x1F(Start Dim) 0xFF(End Dim) 0xEE(Time - 0.1 sec per bit)       0xFF        Fade channel over time (tenths)
+// 0x01     0x07        0x10(Ch #) 0xFF(End Dim) 0xEE(Time - 0.01 sec per bit)                      0xFF        Fade channel over time (hundreths)
+// 0x01     0x08        0x10(Ch #) 0xFF(End Dim) 0xEE(Time - 0.1 sec per bit)                       0xFF        Fade channel over time (tenths)
 //
-// 0x01     0xF1                                                                        0xFF                    Rquest status (number of boards)
+// 0x01     0xF1                                                                                    0xFF        Rquest status (number of boards)
 
 
 

@@ -72,11 +72,11 @@ volatile byte shiftRegisterTimerTrigger = 0;
 
 // Shift Register
 float pwmFrequency = 120;
-float maxBrightness = 254;
+byte maxBrightness = 254;
 byte numberOfShiftRegisters = 0;
 byte numberOfChannels = 0;
-byte *pwmValues = 0;
-byte shiftRegisterCurrentBrightnessIndex = (byte)maxBrightness;
+float *pwmValues = 0;
+byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 
 // Dimming variables
 float *pwmChangePerEachPWMCycle = 0;
@@ -92,6 +92,7 @@ void clearPacketBuffer();
 void turnOnChannel(byte channelNumber);
 void turnOffChannel(byte channelNumber);
 void setBrightnessForChannel(byte channelNumber, byte brightness);
+void fadeChannelNumberToBrightnessWithMillisecondsDuration(byte channelNumber, byte brightness, unsigned long milliseconds);
 bool isChannelNumberValid(byte channelNumber);
 
 // Shift Register Detection Methods
@@ -103,7 +104,7 @@ void zeroCrossDetect();
 
 // ShiftRegister
 void handleShiftRegisterTimerInterrupt();
-void updateInterruptClock();
+void updateShiftRegisterTimerInterruptClock();
 void initShiftRegisterInterruptTimer();
 void printInterruptLoad();
 
@@ -293,33 +294,45 @@ void processPacket()
         }
         else if(currentByteFromPacket == 0x07) // Command 0x07 (Fade Channel over time in hundreths of seconds)
         {
-            /*byte channelNumber;
-            byte startBrightness;
+            byte channelNumber;
             byte endBrightness;
             byte fadeTimeInHundrethsOfSeconds;
-            byte brightnessChange;
-            byte brightnessChangeIsPositive;
-            unsigned int totalMillisecondsForFade;
             
             // Get the channel number
             readNextByteInPacket();
             channelNumber = currentByteFromPacket;
             
-            // Get the start and end brightness (each are only 4 bit values)
+            // Get the start and end brightness
             readNextByteInPacket();
-            startBrightness = (currentByteFromPacket & 0x0F); // Get the first 4 bits
-            endBrightness = (currentByteFromPacket & 0xF0); // Get the other 4 bits
+            endBrightness = currentByteFromPacket;
             
             // Get the fade time
             readNextByteInPacket();
             fadeTimeInHundrethsOfSeconds = currentByteFromPacket;
             
-            // Calculate the fade information
-            totalMillisecondsForFade = fadeTimeInHundrethsOfSeconds * 10;
-            brightnessChange = abs(endBrightness - startBrightness);
-            brightnessChangeIsPositive = (endBrightness > startBrightness ? 1 : 0);
+            // Set the fade
+            fadeChannelNumberToBrightnessWithMillisecondsDuration(channelNumber, endBrightness, fadeTimeInHundrethsOfSeconds * 10);
+        }
+        else if(currentByteFromPacket == 0x08) // Command 0x08 (Fade Channel over time in tenths of seconds)
+        {
+            byte channelNumber;
+            byte endBrightness;
+            byte fadeTimeInTenthsOfSeconds;
             
-            //millisecondBeforeUpdatingChannel[channelNumber] =*/
+            // Get the channel number
+            readNextByteInPacket();
+            channelNumber = currentByteFromPacket;
+            
+            // Get the start and end brightness
+            readNextByteInPacket();
+            endBrightness = currentByteFromPacket;
+            
+            // Get the fade time
+            readNextByteInPacket();
+            fadeTimeInTenthsOfSeconds = currentByteFromPacket;
+            
+            // Set the fade
+            fadeChannelNumberToBrightnessWithMillisecondsDuration(channelNumber, endBrightness, fadeTimeInTenthsOfSeconds * 100);
         }
         else if(currentByteFromPacket == 0xF1) // Command 0xF1 (Request status - number of boards connected)
         {
@@ -356,7 +369,7 @@ void clearPacketBuffer()
 
 void turnOnChannel(byte channelNumber)
 {
-    setBrightnessForChannel(channelNumber, (byte)maxBrightness);
+    setBrightnessForChannel(channelNumber, maxBrightness);
 }
 
 void turnOffChannel(byte channelNumber)
@@ -377,6 +390,22 @@ void setBrightnessForChannel(byte channelNumber, byte brightness)
     Serial.print(channelNumber);
     Serial.print(" v:");
     Serial.println(brightness);
+#endif
+}
+
+void fadeChannelNumberToBrightnessWithMillisecondsDuration(byte channelNumber, byte brightness, unsigned long milliseconds)
+{
+    // Set the pwmChangePerEachPWMCycle if the channel is valid
+    if(isChannelNumberValid(channelNumber))
+    {
+        pwmChangePerEachPWMCycle[channelNumber] = brightness / (milliseconds / (1000.0 / pwmFrequency));
+    }
+    
+#ifdef DEBUG
+    Serial.print("ch:");
+    Serial.print(channelNumber);
+    Serial.print(" p:");
+    Serial.println(pwmChangePerEachPWMCycle[channelNumber]);
 #endif
 }
 
@@ -454,9 +483,13 @@ void detectShiftRegisters()
         if(isInterruptLoadAcceptable())
         {
             // Resize pwmValues array
-            pwmValues = (byte *)realloc(pwmValues, numberOfChannels);
+            pwmValues = (float *)realloc(pwmValues, numberOfChannels);
             // Initialize all pwmValues to 0
             memset(pwmValues, 0, numberOfChannels);
+            // Resize pwmChangePerEachPWMCycle array
+            pwmChangePerEachPWMCycle = (float *)realloc(pwmChangePerEachPWMCycle, numberOfChannels);
+            // Initialize all pwmChangePerEachPWMCycle to 0
+            memset(pwmChangePerEachPWMCycle, 0, numberOfChannels);
             // Re-enable interrupt
             sei();
         }
@@ -531,19 +564,10 @@ void handleZeroCross()
     }
     
     // Update the shift register interrupt timer
-    updateInterruptClock();
+    updateShiftRegisterTimerInterruptClock();
 }
 
 #pragma mark - Shift Register
-
-void updateInterruptClock()
-{
-    // Reset the shiftRegisterCurrentBrightnessIndex
-    shiftRegisterCurrentBrightnessIndex = (byte)maxBrightness;
-    
-    // Update the timer1 interrupt counter
-    OCR1A = round((float)F_CPU / (pwmFrequency * (maxBrightness + 1))) - 1;
-}
 
 //Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
 ISR(TIMER1_COMPA_vect)
@@ -552,10 +576,39 @@ ISR(TIMER1_COMPA_vect)
     shiftRegisterTimerTrigger = 1;
 }
 
+void initShiftRegisterInterruptTimer()
+{
+    // Configure timer1 in CTC mode: clear the timer on compare match. See the Atmega328 Datasheet 15.9.2 for an explanation on CTC mode. See table 15-4 in the datasheet.
+    bitSet(TCCR1B, WGM12);
+    bitClear(TCCR1B, WGM13);
+    bitClear(TCCR1A, WGM11);
+    bitClear(TCCR1A, WGM10);
+    
+    // Select clock source: internal I/O clock, without a prescaler. This is the fastest possible clock source for the highest accuracy. See table 15-5 in the datasheet.
+    bitSet(TCCR1B, CS10);
+    bitClear(TCCR1B, CS11);
+    bitClear(TCCR1B, CS12);
+    
+    // The timer will generate an interrupt when the value we load in OCR1A matches the timer value. One period of the timer, from 0 to OCR1A will therefore be (OCR1A + 1) / timer clock frequency. We want the frequency of the timer to be (pwmFrequency) * (maxBrightness). So the value we want for OCR1A to be: timer clock frequency / (pwmFrequency * maxBrightness) - 1
+    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
+    
+    // Enable the timer interrupt, see datasheet  15.11.8)
+    bitSet(TIMSK1, OCIE1A);
+}
+
+void updateShiftRegisterTimerInterruptClock()
+{
+    // Reset the shiftRegisterCurrentBrightnessIndex
+    shiftRegisterCurrentBrightnessIndex = maxBrightness;
+    
+    // Update the timer1 interrupt counter
+    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
+}
+
 void handleShiftRegisterTimerInterrupt()
 {
     // Define a pointer that will be used to access the values for each output. Let it point one past the last value, because it is decreased before it is used.
-    unsigned char *tempPWMValues = &pwmValues[numberOfChannels];
+    float *tempPWMValues = &pwmValues[numberOfChannels];
     
     // Write shift register latch clock low
     bitClear(*latchPort, latchBit);
@@ -597,30 +650,15 @@ void handleShiftRegisterTimerInterrupt()
     // Reset the brightness index if we've gone below 0
     else
     {
-        shiftRegisterCurrentBrightnessIndex = (byte)maxBrightness;
+        shiftRegisterCurrentBrightnessIndex = maxBrightness;
         
         // Handle the dimming
+        // Do a whole shift register at once. This unrolls the loop for extra speed
+        for(byte i = 0; i < numberOfChannels; i ++)
+        {
+            pwmValues[i] = pwmValues[i] + pwmChangePerEachPWMCycle[i];
+        }
     }
-}
-
-void initShiftRegisterInterruptTimer()
-{
-    // Configure timer1 in CTC mode: clear the timer on compare match. See the Atmega328 Datasheet 15.9.2 for an explanation on CTC mode. See table 15-4 in the datasheet.
-    bitSet(TCCR1B, WGM12);
-    bitClear(TCCR1B, WGM13);
-    bitClear(TCCR1A, WGM11);
-    bitClear(TCCR1A, WGM10);
-    
-    // Select clock source: internal I/O clock, without a prescaler. This is the fastest possible clock source for the highest accuracy. See table 15-5 in the datasheet.
-    bitSet(TCCR1B, CS10);
-    bitClear(TCCR1B, CS11);
-    bitClear(TCCR1B, CS12);
-    
-    // The timer will generate an interrupt when the value we load in OCR1A matches the timer value. One period of the timer, from 0 to OCR1A will therefore be (OCR1A + 1) / timer clock frequency. We want the frequency of the timer to be (pwmFrequency) * (maxBrightness). So the value we want for OCR1A to be: timer clock frequency / (pwmFrequency * maxBrightness) - 1
-    OCR1A = round((float)F_CPU / (pwmFrequency * (maxBrightness + 1))) - 1;
-    
-    // Enable the timer interrupt, see datasheet  15.11.8)
-    bitSet(TIMSK1, OCIE1A);
 }
 
 bool isInterruptLoadAcceptable()
@@ -629,7 +667,7 @@ bool isInterruptLoadAcceptable()
     // This is with inverted outputs, which is worst case. Without inverting, it would be 42 per register.
     float interruptDuration;
     interruptDuration = 96 + 108 * (float)numberOfShiftRegisters;
-    float interruptFrequency = pwmFrequency * (maxBrightness + 1);
+    float interruptFrequency = pwmFrequency * ((float)maxBrightness + 1);
     float load = interruptDuration * interruptFrequency / F_CPU;
     
     if(load > 0.9)
