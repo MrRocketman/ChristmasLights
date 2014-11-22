@@ -49,6 +49,7 @@ volatile uint8_t * const clockPort = port_to_output_PGM_ct[digital_pin_to_port_P
 volatile uint8_t * const dataPort  = port_to_output_PGM_ct[digital_pin_to_port_PGM_ct[MOSI]];
 const uint8_t clockBit = digital_pin_to_bit_PGM_ct[SCK];
 const uint8_t dataBit = digital_pin_to_bit_PGM_ct[MOSI];
+volatile byte shiftRegisterTimerTrigger = 0;
 
 // Shift Register
 const int timerToUse = 1; // Can also be timer 2 or timer 3. Timer1 is the best, timer3 works on Leonardo or Mega, timer2 is the worst.
@@ -217,9 +218,10 @@ void loop()
         zeroCrossTrigger = 0;
     }
     
-    if(digitalRead(zeroCrossPin) == 0)
+    if(shiftRegisterTimerTrigger)
     {
-        Serial.println(micros());
+        handleInterrupt();
+        shiftRegisterTimerTrigger = 0;
     }
     
     // Handle XBee data
@@ -485,8 +487,8 @@ void boardDetect()
             sei();
         }
         
-        setBrightnessForChannel(0, 50);
-        setBrightnessForChannel(1, 128);
+        setBrightnessForChannel(0, 128);
+        setBrightnessForChannel(1, 192);
         
         #ifdef DEBUG
             Serial.print("bd:");
@@ -548,8 +550,6 @@ void updateInterruptClock()
 {
     // Reset the brightnessCounter
     brightnessCounter = maxBrightness;
-    //Serial.print("z:");
-    ///Serial.println(micros());
     
     if(timerToUse == 1)
     {
@@ -572,17 +572,20 @@ void updateInterruptClock()
 #if (timerToUse == 3)
 //Install the Interrupt Service Routine (ISR) for Timer3 compare and match A.
 ISR(TIMER3_COMPA_vect) {
-    handleInterrupt();
+    //handleInterrupt();
+    shiftRegisterTimerTrigger = 1;
 }
 #elif (timerToUse == 2)
 //Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
 ISR(TIMER2_COMPA_vect) {
-    handleInterrupt();
+    //handleInterrupt();
+    shiftRegisterTimerTrigger = 1;
 }
 #else
 //Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
 ISR(TIMER1_COMPA_vect) {
-    handleInterrupt();
+    //handleInterrupt();
+    shiftRegisterTimerTrigger = 1;
 }
 #endif
 
