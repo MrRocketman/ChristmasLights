@@ -102,10 +102,6 @@ void updateInterruptClock();
 void initShiftRegisterInterruptTimer();
 void printInterruptLoad();
 
-void oneByOneSlow();
-void oneByOneFast();
-void oneByOneCore(int delaytime);
-
 #pragma mark - Setup And Main Loop
 
 // free RAM check for debugging. SRAM for ATmega328p = 2048Kb.
@@ -168,15 +164,13 @@ void setup()
 
 void loop()
 {
+    setBrightnessForChannel(0, 150); // 100 - 255 for some reason
+    setBrightnessForChannel(1, 190);
+    
     // Detect MOSFET/TRIAC boards
     if(numberOfShiftRegisters == 0)
     {
         boardDetect();
-    }
-    else
-    {
-        setBrightnessForChannel(0, 150); // 100 - 255 for some reason
-        setBrightnessForChannel(1, 190);
     }
     
     // Handle AC Zero Cross
@@ -751,39 +745,4 @@ void printInterruptLoad()
     
     //Re-enable Interrupt
     bitSet(TIMSK1, OCIE1A);
-}
-
-// OneByOne functions are usefull for testing all your outputs
-void oneByOneSlow()
-{
-    oneByOneCore(1024 / maxBrightness);
-}
-
-void oneByOneFast()
-{
-    oneByOneCore(1);
-}
-
-void oneByOneCore(int delaytime)
-{
-    int pin,brightness;
-    // Start at 0
-    for(byte i = 0; i < numberOfChannels; i ++)
-    {
-        setBrightnessForChannel(i, 0);
-    }
-    
-    for(int pin = 0; pin < numberOfChannels; pin++)
-    {
-        for(brightness = 0; brightness < maxBrightness; brightness++)
-        {
-            pwmValues[pin] = brightness;
-            delay(delaytime);
-        }
-        for(brightness = maxBrightness; brightness >= 0; brightness--)
-        {
-            pwmValues[pin] = brightness;
-            delay(delaytime);
-        }
-    }
 }
