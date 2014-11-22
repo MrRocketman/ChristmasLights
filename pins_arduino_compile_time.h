@@ -86,7 +86,7 @@ but still allow you to use the arduino pin numbers instead of registers like POR
 
 #if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
 
-volatile uint8_t * const port_to_output_PGM_ct[] = {
+const uint8_t *port_to_output_PGM_ct[] = {
 	NOT_A_PORT,
 	&PORTA,
 	&PORTB,
@@ -256,7 +256,7 @@ const uint8_t digital_pin_to_bit_PGM_ct[] = {
 
 #if defined(CORE_TEENSY)
 
-volatile uint8_t * const port_to_output_PGM_ct[] = {
+const uint8_t *port_to_output_PGM_ct[] = {
 	NOT_A_PORT, NOT_A_PORT, &PORTB, &PORTC, &PORTD, &PORTE, &PORTF
 };
 const uint8_t digital_pin_to_port_PGM_ct[] = {
@@ -271,7 +271,7 @@ const uint8_t digital_pin_to_bit_PGM_ct[] = {
 };
 #else
 //Assumes Arduino Leonardo
-volatile uint8_t * const port_to_output_PGM_ct[] = {
+const uint8_t *port_to_output_PGM_ct[] = {
 	NOT_A_PORT, NOT_A_PORT, &PORTB, &PORTC, &PORTD, &PORTE, &PORTF
 };
 const uint8_t digital_pin_to_port_PGM_ct[] = {
@@ -287,7 +287,7 @@ const uint8_t digital_pin_to_bit_PGM_ct[] = {
 #endif
 #elif defined(__AVR_AT90USB1286__)
 
-volatile uint8_t * const port_to_output_PGM_ct[] = {
+const uint8_t *port_to_output_PGM_ct[] = {
         NOT_A_PORT, &PORTA, &PORTB, &PORTC, &PORTD, &PORTE, &PORTF
 };
 const uint8_t digital_pin_to_port_PGM_ct[] = {
@@ -311,7 +311,7 @@ const uint8_t digital_pin_to_bit_PGM_ct[] = {
 // appropriate addresses for various functions (e.g. reading
 // and writing)
 
-volatile uint8_t * const port_to_output_PGM_ct[] = {
+volatile uint8_t *port_to_output_PGM_ct[] = {
 	NOT_A_PORT,
 	NOT_A_PORT,
 	&PORTB,

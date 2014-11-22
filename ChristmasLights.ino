@@ -13,14 +13,30 @@
 // Board specific variables! Change these per board!
 const byte boardID = 0x01;
 
-////////////////////////////////////////////////////////////////////////////////////////////
-// Don't change any variables below here unless you really, really know what you are doing//
-////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////
+// Don't change any variables below here unless you really, really know what you are doing //
+/////////////////////////////////////////////////////////////////////////////////////////////
 
 #define MAX_PACKET_SIZE 64
 
 #define MICROSECONDS_TO_MILLISECONDS 1 / 1000.0
 #define MILLISECONDS_TO_SECONDS 1 / 1000.0
+
+// workaround for a bug in WString.h
+#define F(string_literal) (reinterpret_cast<const __FlashStringHelper *>(PSTR(string_literal)))
+
+// The macro below uses 3 instructions per pin to generate the byte to transfer with SPI for the shift registers. Retreive duty cycle setting from memory (ldd, 2 clockcycles). Compare with the counter (cp, 1 clockcycle) --> result is stored in carry. Use the rotate over carry right to shift the compare result into the byte. (1 clockcycle).
+// TL;DR super fast way of doing the following
+// if(counter < pwmVal)
+//      turnOn;
+// else
+//      turnOff;
+#define add_one_pin_to_byte(sendbyte, counter, ledPtr) \
+{ \
+unsigned char pwmval=*ledPtr; \
+asm volatile ("cp %0, %1" : /* No outputs */ : "r" (counter), "r" (pwmval): ); \
+asm volatile ("ror %0" : "+r" (sendbyte) : "r" (sendbyte) : ); 	\
+}
 
 // Phase Frequency Control (PFC) (Zero Cross)
 unsigned long int previousZeroCrossTime = 0; // Timestamp in micros() of the latest zero crossing interrupt
@@ -43,49 +59,22 @@ byte currentByteIndex = 0;
 
 // Shift PWM Pins
 const int latchPin = 10;
-volatile uint8_t *const latchPort = port_to_output_PGM_ct[digital_pin_to_port_PGM_ct[latchPin]];
+volatile uint8_t *latchPort = port_to_output_PGM_ct[digital_pin_to_port_PGM_ct[latchPin]];
 const uint8_t latchBit =  digital_pin_to_bit_PGM_ct[latchPin];
-volatile uint8_t * const clockPort = port_to_output_PGM_ct[digital_pin_to_port_PGM_ct[SCK]];
-volatile uint8_t * const dataPort  = port_to_output_PGM_ct[digital_pin_to_port_PGM_ct[MOSI]];
+volatile uint8_t *clockPort = port_to_output_PGM_ct[digital_pin_to_port_PGM_ct[SCK]];
 const uint8_t clockBit = digital_pin_to_bit_PGM_ct[SCK];
+volatile uint8_t *dataPort  = port_to_output_PGM_ct[digital_pin_to_port_PGM_ct[MOSI]];
 const uint8_t dataBit = digital_pin_to_bit_PGM_ct[MOSI];
 volatile byte shiftRegisterTimerTrigger = 0;
 
 // Shift Register
-const int timerToUse = 1; // Can also be timer 2 or timer 3. Timer1 is the best, timer3 works on Leonardo or Mega, timer2 is the worst.
 int prescaler;
 float pwmFrequency = 120;
 byte maxBrightness = 254;
 byte numberOfShiftRegisters = 0;
 byte numberOfChannels = 0;
 byte *pwmValues = 0;
-volatile byte brightnessCounter = maxBrightness;
-
-// workaround for a bug in WString.h
-#define F(string_literal) (reinterpret_cast<const __FlashStringHelper *>(PSTR(string_literal)))
-
-#if (timerToUse == 2)
-    #if !defined(OCR2A)
-        #error "The avr you are using does not have a timer2"
-    #endif
-#elif (timerToUse == 3)
-    #if !defined(OCR3A)
-        #error "The avr you are using does not have a timer3"
-    #endif
-#endif
-
-// The macro below uses 3 instructions per pin to generate the byte to transfer with SPI. Retreive duty cycle setting from memory (ldd, 2 clockcycles). Compare with the counter (cp, 1 clockcycle) --> result is stored in carry. Use the rotate over carry right to shift the compare result into the byte. (1 clockcycle).
-// TL;DR super fast way of doing the following
-// if(counter < pwmVal)
-//      turnOn;
-// else
-//      turnOff;
-#define add_one_pin_to_byte(sendbyte, counter, ledPtr) \
-{ \
-unsigned char pwmval=*ledPtr; \
-asm volatile ("cp %0, %1" : /* No outputs */ : "r" (counter), "r" (pwmval): ); \
-asm volatile ("ror %0" : "+r" (sendbyte) : "r" (sendbyte) : ); 	\
-}
+byte brightnessCounter = maxBrightness;
 
 #pragma mark - Method Declarations
 
@@ -108,18 +97,9 @@ byte boardDetectValueIsNearValueWithRange(int compareValue = 512, int range = 10
 void zeroCrossDetect();
 
 // ShiftRegister
-void handleInterrupt();
+void handleShiftRegisterTimerInterrupt();
 void updateInterruptClock();
-
-void initTimer1();
-#if defined(OCR3A)
-// Arduino Leonardo or Micro (32u4)
-void initTimer3();
-#endif
-#if defined(OCR2A)
-// Normal Arduino (328)
-void initTimer2();
-#endif
+void initShiftRegisterInterruptTimer();
 void printInterruptLoad();
 
 void oneByOneSlow();
@@ -168,24 +148,7 @@ void setup()
     
     if(isInterruptLoadAcceptable())
     {
-        if(timerToUse == 1)
-        {
-            Serial.println("Timer1");
-            initTimer1();
-        }
-#if defined(USBCON)
-        else if(timerToUse == 3)
-        {
-            Serial.println("Timer3");
-            initTimer3();
-        }
-#else
-        else if(timerToUse == 2)
-        {
-            Serial.println("Timer2");
-            initTimer2();
-        }
-#endif
+        initShiftRegisterInterruptTimer();
     }
     else
     {
@@ -210,6 +173,11 @@ void loop()
     {
         boardDetect();
     }
+    else
+    {
+        setBrightnessForChannel(0, 150); // 100 - 255 for some reason
+        setBrightnessForChannel(1, 190);
+    }
     
     // Handle AC Zero Cross
     if(zeroCrossTrigger)
@@ -218,9 +186,10 @@ void loop()
         zeroCrossTrigger = 0;
     }
     
+    // Handle Shift Register Timer Interrupt
     if(shiftRegisterTimerTrigger)
     {
-        handleInterrupt();
+        handleShiftRegisterTimerInterrupt();
         shiftRegisterTimerTrigger = 0;
     }
     
@@ -413,7 +382,9 @@ bool isChannelNumberValid(byte channelNumber)
     }
     else
     {
-        Serial.print(F("Error: Trying to change a channel that isn't initialized"));
+        Serial.print(F("Error: Trying to change channel "));
+        Serial.println(channelNumber);
+        Serial.println(F(" that isn't initialized"));
         return 0;
     }
 }
@@ -487,9 +458,6 @@ void boardDetect()
             sei();
         }
         
-        setBrightnessForChannel(0, 128);
-        setBrightnessForChannel(1, 192);
-        
         #ifdef DEBUG
             Serial.print("bd:");
             Serial.println(boardDetectValue);
@@ -551,45 +519,17 @@ void updateInterruptClock()
     // Reset the brightnessCounter
     brightnessCounter = maxBrightness;
     
-    if(timerToUse == 1)
-    {
-        OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
-    }
-#if defined(USBCON)
-    else if(timerToUse == 3)
-    {
-        OCR3A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
-    }
-#else
-    else if(timerToUse == 2)
-    {
-        OCR2A = round(((float)F_CPU / (float)prescaler) / (pwmFrequency * ((float)maxBrightness + 1)) - 1);
-    }
-#endif
+    // Update the timer1 interrupt counter
+    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
 }
 
-// See table  11-1 for the interrupt vectors
-#if (timerToUse == 3)
-//Install the Interrupt Service Routine (ISR) for Timer3 compare and match A.
-ISR(TIMER3_COMPA_vect) {
-    //handleInterrupt();
-    shiftRegisterTimerTrigger = 1;
-}
-#elif (timerToUse == 2)
-//Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
-ISR(TIMER2_COMPA_vect) {
-    //handleInterrupt();
-    shiftRegisterTimerTrigger = 1;
-}
-#else
 //Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
 ISR(TIMER1_COMPA_vect) {
-    //handleInterrupt();
+    //handleShiftRegisterTimerInterrupt();
     shiftRegisterTimerTrigger = 1;
 }
-#endif
 
-void handleInterrupt()
+void handleShiftRegisterTimerInterrupt()
 {
     //sei(); //enable interrupt nesting to prevent disturbing other interrupt functions (servo's for example).
     
@@ -640,6 +580,27 @@ void handleInterrupt()
     }
 }
 
+void initShiftRegisterInterruptTimer()
+{
+    // Configure timer1 in CTC mode: clear the timer on compare match. See the Atmega328 Datasheet 15.9.2 for an explanation on CTC mode. See table 15-4 in the datasheet.
+    bitSet(TCCR1B, WGM12);
+    bitClear(TCCR1B, WGM13);
+    bitClear(TCCR1A, WGM11);
+    bitClear(TCCR1A, WGM10);
+    
+    // Select clock source: internal I/O clock, without a prescaler. This is the fastest possible clock source for the highest accuracy. See table 15-5 in the datasheet.
+    bitSet(TCCR1B, CS10);
+    bitClear(TCCR1B, CS11);
+    bitClear(TCCR1B, CS12);
+    
+    // The timer will generate an interrupt when the value we load in OCR1A matches the timer value. One period of the timer, from 0 to OCR1A will therefore be (OCR1A+1)/(timer clock frequency). We want the frequency of the timer to be (LED frequency)*(number of brightness levels). So the value we want for OCR1A is: timer clock frequency/(LED frequency * number of bightness levels)-1
+    prescaler = 1;
+    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
+    
+    // Enable the timer interrupt, see datasheet  15.11.8)
+    bitSet(TIMSK1, OCIE1A);
+}
+
 bool isInterruptLoadAcceptable()
 {
     // This function calculates if the interrupt load would become higher than 0.9 and prints an error if it would.
@@ -662,29 +623,13 @@ bool isInterruptLoadAcceptable()
     }
 }
 
-void initTimer1()
-{
-    // Configure timer1 in CTC mode: clear the timer on compare match. See the Atmega328 Datasheet 15.9.2 for an explanation on CTC mode. See table 15-4 in the datasheet.
-    bitSet(TCCR1B, WGM12);
-    bitClear(TCCR1B, WGM13);
-    bitClear(TCCR1A, WGM11);
-    bitClear(TCCR1A, WGM10);
-    
-    // Select clock source: internal I/O clock, without a prescaler. This is the fastest possible clock source for the highest accuracy. See table 15-5 in the datasheet.
-    bitSet(TCCR1B, CS10);
-    bitClear(TCCR1B, CS11);
-    bitClear(TCCR1B, CS12);
-    
-    // The timer will generate an interrupt when the value we load in OCR1A matches the timer value. One period of the timer, from 0 to OCR1A will therefore be (OCR1A+1)/(timer clock frequency). We want the frequency of the timer to be (LED frequency)*(number of brightness levels). So the value we want for OCR1A is: timer clock frequency/(LED frequency * number of bightness levels)-1
-    prescaler = 1;
-    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
-    
-    // Enable the timer interrupt, see datasheet  15.11.8)
-    bitSet(TIMSK1,OCIE1A);
-}
+//Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
+/*ISR(TIMER2_COMPA_vect) {
+ //handleShiftRegisterTimerInterrupt();
+ shiftRegisterTimerTrigger = 1;
+ }*/
 
-#if defined(OCR2A)
-void initTimer2()
+/*void initTimer2()
 {
     // Configure timer2 in CTC mode: clear the timer on compare match. See the Atmega328 Datasheet 15.9.2 for an explanation on CTC mode. See table 17-8 in the datasheet.
     bitClear(TCCR2B, WGM22);
@@ -740,31 +685,7 @@ void initTimer2()
     OCR2A = round(((float)F_CPU / (float)prescaler) / (pwmFrequency * ((float)maxBrightness + 1)) - 1);
     // Enable the timer interrupt, see datasheet  15.11.8)
     bitSet(TIMSK2, OCIE2A);
-}
-#endif
-
-#if defined(OCR3A)
-// Arduino Leonardo or Micro
-void initTimer3()
-{
-    // Only available on Leonardo and micro. Configure timer3 in CTC mode: clear the timer on compare match. See the Atmega32u4 Datasheet 15.10.2 for an explanation on CTC mode. See table 14-5 in the datasheet.
-    bitSet(TCCR3B, WGM32);
-    bitClear(TCCR3B, WGM33);
-    bitClear(TCCR3A, WGM31);
-    bitClear(TCCR3A, WGM30);
-    
-    // Select clock source: internal I/O clock, without a prescaler. This is the fastest possible clock source for the highest accuracy. See table 15-5 in the datasheet.
-    bitSet(TCCR3B, CS30);
-    bitClear(TCCR3B, CS31);
-    bitClear(TCCR3B, CS32);
-    
-    // The timer will generate an interrupt when the value we load in OCR1A matches the timer value. One period of the timer, from 0 to OCR1A will therefore be (OCR1A+1)/(timer clock frequency). We want the frequency of the timer to be (LED frequency)*(number of brightness levels). So the value we want for OCR1A is: timer clock frequency/(LED frequency * number of bightness levels)-1
-    prescaler = 1;
-    OCR3A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
-    // Enable the timer interrupt, see datasheet  15.11.8)
-    bitSet(TIMSK3, OCIE3A);
-}
-#endif
+}*/
 
 void printInterruptLoad()
 {
@@ -772,48 +693,16 @@ void printInterruptLoad()
     unsigned long start1,end1,time1,start2,end2,time2,k;
     double load, cycles_per_int, interrupt_frequency;
     
-    if(timerToUse == 1)
+    if(TIMSK1 & (1 << OCIE1A))
     {
-        if(TIMSK1 & (1 << OCIE1A))
-        {
-            // interrupt is enabled, continue
-        }
-        else
-        {
-            // interrupt is disabled
-            Serial.println(F("Interrupt is disabled."));
-            return;
-        }
+        // interrupt is enabled, continue
     }
-#if defined(USBCON)
-    else if(timerToUse == 3)
+    else
     {
-        if(TIMSK3 & (1 << OCIE3A))
-        {
-            // interrupt is enabled, continue
-        }
-        else
-        {
-            // interrupt is disabled
-            Serial.println(F("Interrupt is disabled."));
-            return;
-        }
+        // interrupt is disabled
+        Serial.println(F("Interrupt is disabled."));
+        return;
     }
-#else
-    else if(timerToUse == 2)
-    {
-        if(TIMSK2 & (1 << OCIE2A))
-        {
-            // interrupt is enabled, continue
-        }
-        else
-        {
-            // interrupt is disabled
-            Serial.println(F("Interrupt is disabled."));
-            return;
-        }
-    }
-#endif
     
     //run with interrupt enabled
     start1 = micros();
@@ -825,21 +714,7 @@ void printInterruptLoad()
     time1 = end1 - start1;
     
     //Disable Interrupt
-    if(timerToUse == 1)
-    {
-        bitClear(TIMSK1, OCIE1A);
-    }
-#if defined(USBCON)
-    else if(timerToUse == 3)
-    {
-        bitClear(TIMSK3, OCIE3A);
-    }
-#else
-    else if(timerToUse == 2)
-    {
-        bitClear(TIMSK2, OCIE2A);
-    }
-#endif
+    bitClear(TIMSK1, OCIE1A);
     
     // run with interrupt disabled
     start2 = micros();
@@ -852,21 +727,7 @@ void printInterruptLoad()
     
     // ready for calculations
     load = (double)(time1 - time2) / (double)(time1);
-    if(timerToUse == 1)
-    {
-        interrupt_frequency = (F_CPU / prescaler) / (OCR1A + 1);
-    }
-#if defined(USBCON)
-    else if(timerToUse == 3)
-    {
-        interrupt_frequency = (F_CPU / prescaler) / (OCR3A + 1);
-    }
-#else
-    else if(timerToUse == 2)
-    {
-        interrupt_frequency = (F_CPU / prescaler) / (OCR2A + 1);
-    }
-#endif
+    interrupt_frequency = (F_CPU / prescaler) / (OCR1A + 1);
     cycles_per_int = load * (F_CPU / interrupt_frequency);
     
     //Ready to print information
@@ -881,55 +742,15 @@ void printInterruptLoad()
     Serial.print(interrupt_frequency / (maxBrightness + 1));
     Serial.println(F(" Hz"));
     
-#if defined(USBCON)
-    if(timerToUse == 1)
-    {
-        Serial.println(F("Timer1 in use."));
-        Serial.println(F("Change timerToUse to 3."));
-        Serial.print(F("OCR1A: "));
-        Serial.println(OCR1A, DEC);
-        Serial.print(F("Prescaler: "));
-        Serial.println(prescaler);
-        
-        //Re-enable Interrupt
-        bitSet(TIMSK1, OCIE1A);
-    }
-    else if(timerToUse == 3)
-    {
-        Serial.println(F("Timer3 in use."));
-        Serial.print(F("OCR3A: "));
-        Serial.println(OCR3A, DEC);
-        Serial.print(F("Presclaler: "));
-        Serial.println(prescaler);
-        
-        //Re-enable Interrupt
-        bitSet(TIMSK3, OCIE3A);
-    }
-#else
-    if(timerToUse==1)
-    {
-        Serial.println(F("Timer1 in use for highest precision."));
-        Serial.println(F("Change timerToUse to 2."));
-        Serial.print(F("OCR1A: "));
-        Serial.println(OCR1A, DEC);
-        Serial.print(F("Prescaler: "));
-        Serial.println(prescaler);
-        
-        //Re-enable Interrupt
-        bitSet(TIMSK1, OCIE1A);
-    }
-    else if(timerToUse == 2)
-    {
-        Serial.println(F("Timer2 in use."));
-        Serial.print(F("OCR2A: "));
-        Serial.println(OCR2A, DEC);
-        Serial.print(F("Presclaler: "));
-        Serial.println(prescaler);
-        
-        //Re-enable Interrupt
-        bitSet(TIMSK2, OCIE2A);
-    }
-#endif
+    Serial.println(F("Timer1 in use for highest precision."));
+    Serial.println(F("Change timerToUse to 2."));
+    Serial.print(F("OCR1A: "));
+    Serial.println(OCR1A, DEC);
+    Serial.print(F("Prescaler: "));
+    Serial.println(prescaler);
+    
+    //Re-enable Interrupt
+    bitSet(TIMSK1, OCIE1A);
 }
 
 // OneByOne functions are usefull for testing all your outputs
