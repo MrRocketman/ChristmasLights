@@ -31,9 +31,9 @@ const byte boardID = 0x01;
 //      turnOn;
 // else
 //      turnOff;
-#define add_one_pin_to_byte(sendbyte, counter, ledPtr) \
+#define add_one_pin_to_byte(sendbyte, counter, tempPWMValues) \
 { \
-unsigned char pwmval=*ledPtr; \
+unsigned char pwmval=*tempPWMValues; \
 asm volatile ("cp %0, %1" : /* No outputs */ : "r" (counter), "r" (pwmval): ); \
 asm volatile ("ror %0" : "+r" (sendbyte) : "r" (sendbyte) : ); 	\
 }
@@ -68,13 +68,12 @@ const uint8_t dataBit = digital_pin_to_bit_PGM_ct[MOSI];
 volatile byte shiftRegisterTimerTrigger = 0;
 
 // Shift Register
-int prescaler;
 float pwmFrequency = 120;
 byte maxBrightness = 254;
 byte numberOfShiftRegisters = 0;
 byte numberOfChannels = 0;
 byte *pwmValues = 0;
-byte brightnessCounter = maxBrightness;
+byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 
 #pragma mark - Method Declarations
 
@@ -125,6 +124,7 @@ void setup()
     pinMode(boardDetectPin, INPUT);
     pinMode(zeroCrossPin, INPUT);
     
+    // Initialize pin states
     digitalWrite(SCK, LOW);
     digitalWrite(MOSI, LOW);
     digitalWrite(SS, HIGH);
@@ -142,6 +142,7 @@ void setup()
     SPCR |= _BV(SPE);
     SPI.begin();
     
+    // Initialize shift Register Interrupt Timer
     if(isInterruptLoadAcceptable())
     {
         initShiftRegisterInterruptTimer();
@@ -190,6 +191,7 @@ void loop()
     // Handle XBee data
 	if(Serial.available())
     {
+        // Read in a byte and store it
         packetBuffer[packetBufferLength] = Serial.read();
         packetBufferLength ++;
         
@@ -230,11 +232,13 @@ void processPacket()
     Serial.println();
 #endif
     
+    // Read in the boardID byte
     readNextByteInPacket();
     
     // Only process the packet if it's for this board
     if(currentByteFromPacket == boardID)
     {
+        // Read in the commandID byte
         readNextByteInPacket();
         
         if(currentByteFromPacket == 0x01) // Command 0x01 (1 channel on)
@@ -320,6 +324,7 @@ void processPacket()
 
 void readNextByteInPacket()
 {
+    // If we aren't past the end of our buffer, get the next buffered byte
     if(currentByteIndex < packetBufferLength)
     {
         currentByteFromPacket = packetBuffer[currentByteIndex];
@@ -337,6 +342,7 @@ void clearPacketBuffer()
 	packetBufferLength = 0;
     currentByteIndex = 0;
 	
+    // Set our packetBuffer to all 0's (nils)
 	memset(packetBuffer, 0, MAX_PACKET_SIZE);
 }
 
@@ -354,7 +360,7 @@ void turnOffChannel(byte channelNumber)
 
 void setBrightnessForChannel(byte channelNumber, byte brightness)
 {
-    // Set the brightness
+    // Set the brightness if the channel is valid
     if(isChannelNumberValid(channelNumber))
     {
         pwmValues[channelNumber] = brightness;
@@ -387,12 +393,14 @@ bool isChannelNumberValid(byte channelNumber)
 
 void boardDetect()
 {
+    // Read in the values for the board detect
     oldBoardDetectValue = boardDetectValue;
     boardDetectValue = analogRead(boardDetectPin);
     
     // See if there has been a change in the boardDetect Value
     if(abs(boardDetectValue - oldBoardDetectValue) > 7)
     {
+        // Set the number of shift registers appropriatly
         if(boardDetectValueIsNearValueWithRange(0))
         {
             numberOfShiftRegisters = 0;
@@ -431,7 +439,9 @@ void boardDetect()
             numberOfShiftRegisters = 8;
         }
         
-        cli(); // Disable interrupt
+        // Disable interrupt
+        cli();
+        // Update the number of channels
         numberOfChannels = numberOfShiftRegisters * 8;
         
         // Check if new amount will not result in deadlock
@@ -492,6 +502,7 @@ byte boardDetectValueIsNearValueWithRange(int compareValue, int range)
 // Hardware zero cross interrupt
 void zeroCrossDetect()
 {
+    // Set our flag that a zero Cross happened
     zeroCrossTrigger = 1;
 }
 
@@ -502,7 +513,9 @@ void handleZeroCross()
     previousZeroCrossTime = currentZeroCrossTime;
     currentZeroCrossTime = micros();
     zeroCrossTimeDifference = currentZeroCrossTime - previousZeroCrossTime;
-    pwmFrequency = 1.0 / (zeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS); // Divide by 2 to get 60
+    pwmFrequency = 1.0 / (zeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS);
+    
+    // Update the shift register interrupt timer
     updateInterruptClock();
 }
 
@@ -510,26 +523,24 @@ void handleZeroCross()
 
 void updateInterruptClock()
 {
-    // Reset the brightnessCounter
-    brightnessCounter = maxBrightness;
+    // Reset the shiftRegisterCurrentBrightnessIndex
+    shiftRegisterCurrentBrightnessIndex = maxBrightness;
     
     // Update the timer1 interrupt counter
     OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
 }
 
 //Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
-ISR(TIMER1_COMPA_vect) {
-    //handleShiftRegisterTimerInterrupt();
+ISR(TIMER1_COMPA_vect)
+{
+    // Set our flag that a shift register timer overflow happened
     shiftRegisterTimerTrigger = 1;
 }
 
 void handleShiftRegisterTimerInterrupt()
 {
-    //sei(); //enable interrupt nesting to prevent disturbing other interrupt functions (servo's for example).
-    
-    // Define a pointer that will be used to access the values for each output.
-    // Let it point one past the last value, because it is decreased before it is used.
-    unsigned char *ledPtr = &pwmValues[numberOfChannels];
+    // Define a pointer that will be used to access the values for each output. Let it point one past the last value, because it is decreased before it is used.
+    unsigned char *tempPWMValues = &pwmValues[numberOfChannels];
     
     // Write shift register latch clock low
     bitClear(*latchPort, latchBit);
@@ -541,36 +552,37 @@ void handleShiftRegisterTimerInterrupt()
     {
         unsigned char sendbyte;  // no need to initialize, all bits are replaced
         
-        add_one_pin_to_byte(sendbyte, brightnessCounter, --ledPtr);
-        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
-        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
-        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
-        
-        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
-        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
-        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
-        add_one_pin_to_byte(sendbyte, brightnessCounter,  --ledPtr);
+        // Build the byte. One bit for each channel in this shift register
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
         
         // wait for last send to finish and retreive answer. Retreive must be done, otherwise the SPI will not work.
         while (!(SPSR & _BV(SPIF)));
         
-        SPDR = sendbyte; // Send the byte to the SPI
+        // Send the byte to the SPI
+        SPDR = sendbyte;
     }
-    // wait for the send to complete.
-    while (!(SPSR & _BV(SPIF)));
+    // Wait for the send to complete.
+    while(!(SPSR & _BV(SPIF)));
     
     // Write shift register latch clock high
     bitSet(*latchPort, latchBit);
     
-    if(brightnessCounter > 0)
+    // Decrease the brightness index. This is the key to getting AC dimming since triacs stay on until the next zero cross. So we need to turn on after a delay rather than turn on immediately and turn off after a delay. AKA, this needs to count down not up. Trust me!
+    if(shiftRegisterCurrentBrightnessIndex > 0)
     {
-        // Decrease the counter. This is the key to getting AC dimming since triacs stay on until the next zero cross. So we need to turn on after a delay rather than turn on immediately and turn off after a delay
-        brightnessCounter --;
+        shiftRegisterCurrentBrightnessIndex --;
     }
+    // Reset the brightness index if we've gone below 0
     else
     {
-        // Reset counter if it maximum brightness has been reached
-        brightnessCounter = maxBrightness;
+        shiftRegisterCurrentBrightnessIndex = maxBrightness;
     }
 }
 
@@ -588,7 +600,6 @@ void initShiftRegisterInterruptTimer()
     bitClear(TCCR1B, CS12);
     
     // The timer will generate an interrupt when the value we load in OCR1A matches the timer value. One period of the timer, from 0 to OCR1A will therefore be (OCR1A+1)/(timer clock frequency). We want the frequency of the timer to be (LED frequency)*(number of brightness levels). So the value we want for OCR1A is: timer clock frequency/(LED frequency * number of bightness levels)-1
-    prescaler = 1;
     OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
     
     // Enable the timer interrupt, see datasheet  15.11.8)
@@ -721,7 +732,7 @@ void printInterruptLoad()
     
     // ready for calculations
     load = (double)(time1 - time2) / (double)(time1);
-    interrupt_frequency = (F_CPU / prescaler) / (OCR1A + 1);
+    interrupt_frequency = F_CPU / (OCR1A + 1);
     cycles_per_int = load * (F_CPU / interrupt_frequency);
     
     //Ready to print information
@@ -735,13 +746,9 @@ void printInterruptLoad()
     Serial.print(F("PWM frequency: "));
     Serial.print(interrupt_frequency / (maxBrightness + 1));
     Serial.println(F(" Hz"));
-    
     Serial.println(F("Timer1 in use for highest precision."));
-    Serial.println(F("Change timerToUse to 2."));
     Serial.print(F("OCR1A: "));
     Serial.println(OCR1A, DEC);
-    Serial.print(F("Prescaler: "));
-    Serial.println(prescaler);
     
     //Re-enable Interrupt
     bitSet(TIMSK1, OCIE1A);
