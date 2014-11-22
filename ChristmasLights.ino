@@ -72,15 +72,14 @@ volatile byte shiftRegisterTimerTrigger = 0;
 
 // Shift Register
 float pwmFrequency = 120;
-byte maxBrightness = 254;
+float maxBrightness = 254;
 byte numberOfShiftRegisters = 0;
 byte numberOfChannels = 0;
 byte *pwmValues = 0;
-byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
+byte shiftRegisterCurrentBrightnessIndex = (byte)maxBrightness;
 
 // Dimming variables
-volatile byte dimmingTimerTrigger = 0;
-byte dimmingFrequency = 62; // 62 Hz is the minimum update frequency
+float *pwmChangePerEachPWMCycle = 0;
 
 #pragma mark - Method Declarations
 
@@ -107,10 +106,6 @@ void handleShiftRegisterTimerInterrupt();
 void updateInterruptClock();
 void initShiftRegisterInterruptTimer();
 void printInterruptLoad();
-
-// Dimming
-void initDimmingInterruptTimer();
-void handleDimming();
 
 #pragma mark - Setup And Main Loop
 
@@ -164,9 +159,6 @@ void setup()
         cli(); //Disable interrupts
     }
     
-    // Init timer 2 for dimming updates
-    initDimmingInterruptTimer();
-    
     // Setup the zero cross interrupt which uses zeroCrossPin (zeroCrossPin can't be changed though)
     attachInterrupt(0, zeroCrossDetect, FALLING);
     
@@ -194,13 +186,6 @@ void loop()
     {
         handleZeroCross();
         zeroCrossTrigger = 0;
-    }
-    
-    // Handle dimming timer interrupt
-    if(dimmingTimerTrigger == 1)
-    {
-        handleDimming();
-        dimmingTimerTrigger = 0;
     }
     
     // Handle XBee data
@@ -371,7 +356,7 @@ void clearPacketBuffer()
 
 void turnOnChannel(byte channelNumber)
 {
-    setBrightnessForChannel(channelNumber, maxBrightness);
+    setBrightnessForChannel(channelNumber, (byte)maxBrightness);
 }
 
 void turnOffChannel(byte channelNumber)
@@ -554,10 +539,10 @@ void handleZeroCross()
 void updateInterruptClock()
 {
     // Reset the shiftRegisterCurrentBrightnessIndex
-    shiftRegisterCurrentBrightnessIndex = maxBrightness;
+    shiftRegisterCurrentBrightnessIndex = (byte)maxBrightness;
     
     // Update the timer1 interrupt counter
-    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
+    OCR1A = round((float)F_CPU / (pwmFrequency * (maxBrightness + 1))) - 1;
 }
 
 //Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
@@ -612,7 +597,9 @@ void handleShiftRegisterTimerInterrupt()
     // Reset the brightness index if we've gone below 0
     else
     {
-        shiftRegisterCurrentBrightnessIndex = maxBrightness;
+        shiftRegisterCurrentBrightnessIndex = (byte)maxBrightness;
+        
+        // Handle the dimming
     }
 }
 
@@ -630,7 +617,7 @@ void initShiftRegisterInterruptTimer()
     bitClear(TCCR1B, CS12);
     
     // The timer will generate an interrupt when the value we load in OCR1A matches the timer value. One period of the timer, from 0 to OCR1A will therefore be (OCR1A + 1) / timer clock frequency. We want the frequency of the timer to be (pwmFrequency) * (maxBrightness). So the value we want for OCR1A to be: timer clock frequency / (pwmFrequency * maxBrightness) - 1
-    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
+    OCR1A = round((float)F_CPU / (pwmFrequency * (maxBrightness + 1))) - 1;
     
     // Enable the timer interrupt, see datasheet  15.11.8)
     bitSet(TIMSK1, OCIE1A);
@@ -642,7 +629,7 @@ bool isInterruptLoadAcceptable()
     // This is with inverted outputs, which is worst case. Without inverting, it would be 42 per register.
     float interruptDuration;
     interruptDuration = 96 + 108 * (float)numberOfShiftRegisters;
-    float interruptFrequency = pwmFrequency * ((float)maxBrightness + 1);
+    float interruptFrequency = pwmFrequency * (maxBrightness + 1);
     float load = interruptDuration * interruptFrequency / F_CPU;
     
     if(load > 0.9)
@@ -718,84 +705,4 @@ void printInterruptLoad()
     
     //Re-enable Interrupt
     bitSet(TIMSK1, OCIE1A);
-}
-
-#pragma mark - Dimming
-
-//Install the Interrupt Service Routine (ISR) for Timer2 compare and match A.
-ISR(TIMER2_COMPA_vect)
-{
-    dimmingTimerTrigger = 1;
-}
-
-void initDimmingInterruptTimer()
-{
-    // Configure timer2 in CTC mode: clear the timer on compare match. See the Atmega328 Datasheet 15.9.2 for an explanation on CTC mode. See table 17-8 in the datasheet.
-    bitClear(TCCR2B, WGM22);
-    bitSet(TCCR2A, WGM21);
-    bitClear(TCCR2A, WGM20);
-    
-    // Select clock source: internal I/O clock, calculate most suitable prescaler. This is only an 8 bit timer, so choose the prescaler so that OCR2A fits in 8 bits. See table 15-5 in the datasheet.
-    unsigned long compare_value = round((float)F_CPU / dimmingFrequency) - 1;
-    short dimmingPrescaler = 0;
-    if(compare_value <= 255)
-    {
-        dimmingPrescaler = 1;
-        bitClear(TCCR2B, CS22);
-        bitClear(TCCR2B, CS21);
-        bitSet(TCCR2B, CS20);
-    }
-    else if(compare_value / 8 <= 255)
-    {
-        dimmingPrescaler = 8;
-        bitClear(TCCR2B, CS22);
-        bitSet(TCCR2B, CS21);
-        bitClear(TCCR2B, CS20);
-    }
-    else if(compare_value / 32 <= 255)
-    {
-        dimmingPrescaler = 32;
-        bitClear(TCCR2B, CS22);
-        bitSet(TCCR2B, CS21);
-        bitSet(TCCR2B, CS20);
-    }
-    else if(compare_value / 64 <= 255)
-    {
-        dimmingPrescaler = 64;
-        bitSet(TCCR2B, CS22);
-        bitClear(TCCR2B, CS21);
-        bitClear(TCCR2B, CS20);
-    }
-    else if(compare_value / 128 <= 255)
-    {
-        dimmingPrescaler = 128;
-        bitSet(TCCR2B, CS22);
-        bitClear(TCCR2B, CS21);
-        bitSet(TCCR2B, CS20);
-    }
-    else if(compare_value / 256 <= 255)
-    {
-        dimmingPrescaler = 256;
-        bitSet(TCCR2B, CS22);
-        bitSet(TCCR2B, CS21);
-        bitClear(TCCR2B, CS20);
-    }
-    else if(compare_value / 1024 <= 255)
-    {
-        dimmingPrescaler = 1024;
-        bitSet(TCCR2B, CS22);
-        bitSet(TCCR2B, CS21);
-        bitSet(TCCR2B, CS20);
-    }
-    
-    // The timer will generate an interrupt when the value we load in OCR2A matches the timer value. One period of the timer, from 0 to OCR2A will therefore be (OCR2A + 1) / timer clock frequency. So the value we want for OCR2A to be: timer clock frequency / dimmingFrequency - 1
-    OCR2A = round((float)F_CPU / (float)dimmingPrescaler / dimmingFrequency) - 1;
-    
-    // Enable the timer interrupt, see datasheet  15.11.8)
-    bitSet(TIMSK2, OCIE2A);
-}
-
-void handleDimming()
-{
-    
 }
