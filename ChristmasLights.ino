@@ -630,13 +630,11 @@ void handleInterrupt()
         // Decrease the counter. This is the key to getting AC dimming since triacs stay on until the next zero cross. So we need to turn on after a delay rather than turn on immediately and turn off after a delay
         brightnessCounter --;
     }
-    /*else
+    else
     {
         // Reset counter if it maximum brightness has been reached
-        brightnessCounter = 0;
-        Serial.print("i:");
-        Serial.println(micros());
-    }*/
+        brightnessCounter = maxBrightness;
+    }
 }
 
 bool isInterruptLoadAcceptable()
