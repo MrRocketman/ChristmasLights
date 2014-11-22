@@ -41,7 +41,10 @@ asm volatile ("ror %0" : "+r" (sendbyte) : "r" (sendbyte) : ); 	\
 // Phase Frequency Control (PFC) (Zero Cross)
 unsigned long int previousZeroCrossTime = 0; // Timestamp in micros() of the latest zero crossing interrupt
 unsigned long int currentZeroCrossTime = 0; // Timestamp in micros() of the previous zero crossing interrupt
-unsigned long int zeroCrossTimeDifference =  0; // The calculated micros() between the last two zero crossings
+unsigned long nominalZeroCrossTimeDifference = 8333; // This is the default expected time between zero crosses
+byte acceptableZeroCrossDeviationInMicroseconds = 100; // How much the zero crosses can change by before taking action
+unsigned long int zeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
+unsigned long int averageZeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
 volatile byte zeroCrossTrigger = 0;
 byte zeroCrossPin = 2;
 
@@ -531,7 +534,16 @@ void handleZeroCross()
     previousZeroCrossTime = currentZeroCrossTime;
     currentZeroCrossTime = micros();
     zeroCrossTimeDifference = currentZeroCrossTime - previousZeroCrossTime;
-    pwmFrequency = 1.0 / (zeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS);
+    averageZeroCrossTimeDifference -= averageZeroCrossTimeDifference / pwmFrequency;
+    averageZeroCrossTimeDifference += zeroCrossTimeDifference / pwmFrequency;
+    
+    // Only update the pwmFrequency if it has changed by ~1 hz
+    if(averageZeroCrossTimeDifference > nominalZeroCrossTimeDifference + acceptableZeroCrossDeviationInMicroseconds || averageZeroCrossTimeDifference < nominalZeroCrossTimeDifference - acceptableZeroCrossDeviationInMicroseconds)
+    {
+        pwmFrequency = 1.0 / (averageZeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS);
+        // Also update what we expect the zero cross time difference
+        nominalZeroCrossTimeDifference = averageZeroCrossTimeDifference;
+    }
     
     // Update the shift register interrupt timer
     updateInterruptClock();
