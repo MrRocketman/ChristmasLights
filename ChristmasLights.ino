@@ -6,12 +6,11 @@
 
 // Debugging defines
 #define SERIAL_PRINTING // This disables most all serial printing
-#ifdef SERIAL_PRINTING
-    //#define DEBUG
-#endif
+//#define DEBUG // Outputs extra logs to Serial
+#define TESTING // Uncomment to enable all channel testing
 
 // Board specific variables! Change these per board!
-const byte boardID = 0x01;
+const byte boardID = 0x03;
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 // Don't change any variables below here unless you really, really know what you are doing //
@@ -81,6 +80,9 @@ float *brightnessChangePerDimmingCycle = 0;
 float *tempPWMValues = 0;
 unsigned short *dimmingUpdatesCount = 0;
 volatile byte updateDimming = 0;
+#ifdef TESTING
+    byte *dimmingDirection; // For testing only
+#endif
 
 #pragma mark - Method Declarations
 
@@ -175,9 +177,6 @@ void setup()
 
 void loop()
 {
-    setBrightnessForChannel(0, 60); // ???: Brightness goes from 100 - 255 for some reason
-    setBrightnessForChannel(1, 190);
-    
     // Handle dimming
     if(updateDimming)
     {
@@ -358,7 +357,7 @@ void clearPacketBuffer()
     currentByteIndex = 0;
 	
     // Set our packetBuffer to all 0's (nils)
-	memset(packetBuffer, 0, MAX_PACKET_SIZE);
+	memset(packetBuffer, 0, MAX_PACKET_SIZE * sizeof(byte));
 }
 
 #pragma mark - Channel Changes
@@ -480,22 +479,33 @@ void detectShiftRegisters()
         // Check if new amount will not result in deadlock
         if(isInterruptLoadAcceptable())
         {
-            // Resize pwmValues array
+            // Malloc pwmValues array
             pwmValues = (byte *)malloc(numberOfChannels * sizeof(byte));
-            // Initialize all pwmValues to 0
+            // Initialize pwmValues array to 0
             memset(pwmValues, 0, numberOfChannels * sizeof(byte));
-            // Resize tempPWMValues array
+            
+            // Malloc tempPWMValues array
             tempPWMValues = (float *)malloc(numberOfChannels * sizeof(float));
-            // Initialize all tempPWMValues to 0
+            // Initialize tempPWMValues array to 0
             memset(tempPWMValues, 0, numberOfChannels * sizeof(float));
-            // Resize brightnessChangePerDimmingCycle array
+            
+            // Malloc brightnessChangePerDimmingCycle array
             brightnessChangePerDimmingCycle = (float *)malloc(numberOfChannels * sizeof(float));
-            // Initialize all brightnessChangePerDimmingCycle to 0
+            // Initialize brightnessChangePerDimmingCycle array to 0
             memset(brightnessChangePerDimmingCycle, 0, numberOfChannels * sizeof(float));
-            // Resize dimmingUpdatesCount array
+            
+            // Malloc dimmingUpdatesCount array
             dimmingUpdatesCount = (unsigned short *)malloc(numberOfChannels * sizeof(unsigned short));
-            // Initialize all dimmingUpdatesCount to 0
+            // Initialize dimmingUpdatesCount array to 0
             memset(dimmingUpdatesCount, 0, numberOfChannels * sizeof(unsigned short));
+            
+#ifdef TESTING
+            // Malloc dimmingDirection array
+            dimmingDirection = (byte *)malloc(numberOfChannels * sizeof(byte));
+            // Initialize dimmingDirection array to 0
+            memset(dimmingDirection, 0, numberOfChannels * sizeof(byte));
+#endif
+            
             // Re-enable interrupt
             sei();
         }
@@ -507,12 +517,9 @@ void detectShiftRegisters()
             sei();
         }
         
-        //setBrightnessForChannel(0, 0);
-        //fadeChannelNumberToBrightnessWithMillisecondsDuration(0, 255, 10000);
-        
         #ifdef DEBUG
             Serial.print("bd:");
-            Serial.println(boardDetectValue);
+            Serial.println(shiftRegisterDetectValue);
         #endif
         
 #ifdef DEBUG
@@ -745,6 +752,10 @@ void dimmingUpdate()
     // Reset the brightness index to be in phase with the zero cross
     shiftRegisterCurrentBrightnessIndex = maxBrightness;
     
+#ifdef TESTING
+    dimmingTest();
+#endif
+    
     // Handle the dimming over time for each channel
     for(byte i = 0; i < numberOfChannels; i ++)
     {
@@ -757,3 +768,27 @@ void dimmingUpdate()
         }
     }
 }
+
+#ifdef TESTING
+
+void dimmingTest()
+{
+    for(byte i = 0; i < numberOfChannels; i ++)
+    {
+        if(dimmingUpdatesCount[i] == 0)
+        {
+            if(dimmingDirection[i] == 1)
+            {
+                fadeChannelNumberToBrightnessWithMillisecondsDuration(i, 0, 500 + i * 100);
+                dimmingDirection[i] = 0;
+            }
+            else
+            {
+                fadeChannelNumberToBrightnessWithMillisecondsDuration(i, 255, 500 + i * 100);
+                dimmingDirection[i] = 1;
+            }
+        }
+    }
+}
+
+#endif
