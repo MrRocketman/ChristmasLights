@@ -16,7 +16,7 @@ const byte boardID = 0x03;
 // Don't change any variables below here unless you really, really know what you are doing //
 /////////////////////////////////////////////////////////////////////////////////////////////
 
-#define MAX_PACKET_SIZE 64
+#define MAX_PACKET_SIZE 32
 
 #define MICROSECONDS_TO_MILLISECONDS 1 / 1000.0
 #define MILLISECONDS_TO_SECONDS 1 / 1000.0
@@ -77,7 +77,7 @@ volatile byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 
 // Dimming variables
 float *brightnessChangePerDimmingCycle = 0;
-float *tempPWMValues = 0;
+float *temporaryPWMValues = 0;
 unsigned short *dimmingUpdatesCount = 0;
 volatile byte updateDimming = 0;
 #ifdef TESTING
@@ -395,7 +395,7 @@ void fadeChannelNumberToBrightnessWithMillisecondsDuration(byte channelNumber, b
     {
         dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency);
         brightnessChangePerDimmingCycle[channelNumber] = (float)(brightness - pwmValues[channelNumber]) / dimmingUpdatesCount[channelNumber];
-        tempPWMValues[channelNumber] = pwmValues[channelNumber];
+        temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
     }
     
 #ifdef DEBUG
@@ -484,10 +484,10 @@ void detectShiftRegisters()
             // Initialize pwmValues array to 0
             memset(pwmValues, 0, numberOfChannels * sizeof(byte));
             
-            // Malloc tempPWMValues array
-            tempPWMValues = (float *)malloc(numberOfChannels * sizeof(float));
-            // Initialize tempPWMValues array to 0
-            memset(tempPWMValues, 0, numberOfChannels * sizeof(float));
+            // Malloc temporaryPWMValues array
+            temporaryPWMValues = (float *)malloc(numberOfChannels * sizeof(float));
+            // Initialize temporaryPWMValues array to 0
+            memset(temporaryPWMValues, 0, numberOfChannels * sizeof(float));
             
             // Malloc brightnessChangePerDimmingCycle array
             brightnessChangePerDimmingCycle = (float *)malloc(numberOfChannels * sizeof(float));
@@ -762,8 +762,8 @@ void dimmingUpdate()
         // Update a channel if it is still dimming
         if(dimmingUpdatesCount[i] > 0)
         {
-            tempPWMValues[i] += brightnessChangePerDimmingCycle[i];
-            pwmValues[i] = tempPWMValues[i];
+            temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
+            pwmValues[i] = temporaryPWMValues[i];
             dimmingUpdatesCount[i] --;
         }
     }
