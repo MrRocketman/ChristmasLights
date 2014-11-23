@@ -80,8 +80,8 @@ byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 
 // Dimming variables
 float *brightnessChangePerDimmingCycle = 0;
-byte *dimmingUpdatesCount = 0;
-byte *dimmingUpdatesTotal = 0;
+unsigned short *dimmingUpdatesCount = 0;
+unsigned short *dimmingUpdatesTotal = 0;
 
 #pragma mark - Method Declarations
 
@@ -489,21 +489,21 @@ void detectShiftRegisters()
         if(isInterruptLoadAcceptable())
         {
             // Resize pwmValues array
-            pwmValues = (byte *)realloc(pwmValues, numberOfChannels);
+            pwmValues = (byte *)malloc(numberOfChannels * sizeof(byte));
             // Initialize all pwmValues to 0
-            memset(pwmValues, 0, numberOfChannels);
+            memset(pwmValues, 0, numberOfChannels * sizeof(byte));
             // Resize brightnessChangePerDimmingCycle array
-            brightnessChangePerDimmingCycle = (float *)realloc(brightnessChangePerDimmingCycle, numberOfChannels);
+            brightnessChangePerDimmingCycle = (float *)malloc(numberOfChannels * sizeof(float));
             // Initialize all brightnessChangePerDimmingCycle to 0
-            memset(brightnessChangePerDimmingCycle, 0, numberOfChannels);
+            memset(brightnessChangePerDimmingCycle, 0, numberOfChannels * sizeof(float));
             // Resize dimmingUpdatesCount array
-            dimmingUpdatesCount = (byte *)realloc(dimmingUpdatesCount, numberOfChannels);
+            dimmingUpdatesCount = (unsigned short *)malloc(numberOfChannels * sizeof(unsigned short));
             // Initialize all dimmingUpdatesCount to 0
-            memset(dimmingUpdatesCount, 0, numberOfChannels);
+            memset(dimmingUpdatesCount, 0, numberOfChannels * sizeof(unsigned short));
             // Resize dimmingUpdatesTotal array
-            dimmingUpdatesTotal = (byte *)realloc(dimmingUpdatesTotal, numberOfChannels);
+            dimmingUpdatesTotal = (unsigned short *)malloc(numberOfChannels * sizeof(unsigned short));
             // Initialize all dimmingUpdatesTotal to 0
-            memset(dimmingUpdatesTotal, 0, numberOfChannels);
+            memset(dimmingUpdatesTotal, 0, numberOfChannels * sizeof(unsigned short));
             // Re-enable interrupt
             sei();
         }
@@ -515,7 +515,7 @@ void detectShiftRegisters()
             sei();
         }
         
-        fadeChannelNumberToBrightnessWithMillisecondsDuration(0, 255, 2000);
+        fadeChannelNumberToBrightnessWithMillisecondsDuration(0, 255, 10000);
         
         #ifdef DEBUG
             Serial.print("bd:");
@@ -762,8 +762,14 @@ void dimmingUpdate()
         if(dimmingUpdatesCount[i] > 0)
         {
             
-            pwmValues[i] = (dimmingUpdatesTotal[i] - dimmingUpdatesCount[i]) * brightnessChangePerDimmingCycle[i];
-            dimmingUpdatesCount[i] --;
+            pwmValues[i] = (byte)(dimmingUpdatesTotal[i] - dimmingUpdatesCount[i]) * brightnessChangePerDimmingCycle[i];
+            Serial.print("c:");
+            Serial.print(i);
+            Serial.print(" dc:");
+            Serial.print(dimmingUpdatesCount[i]);
+            Serial.print(" v:");
+            Serial.println(pwmValues[i]);
+            dimmingUpdatesCount[i] = dimmingUpdatesCount[i] - 1;
         }
     }
 }
