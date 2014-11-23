@@ -39,9 +39,10 @@ asm volatile ("ror %0" : "+r" (sendbyte) : "r" (sendbyte) : ); 	\
 }
 
 // Phase Frequency Control (PFC) (Zero Cross)
+float pwmFrequency = 120;
 unsigned long int previousZeroCrossTime = 0; // Timestamp in micros() of the latest zero crossing interrupt
 unsigned long int currentZeroCrossTime = 0; // Timestamp in micros() of the previous zero crossing interrupt
-unsigned long nominalZeroCrossTimeDifference = 8333; // This is the default expected time between zero crosses
+unsigned long nominalZeroCrossTimeDifference = (unsigned long)(1000000 / pwmFrequency); // This is the default expected time between zero crosses
 byte acceptableZeroCrossDeviationInMicroseconds = 100; // How much the zero crosses can change by before taking action
 unsigned long int zeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
 unsigned long int averageZeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
@@ -71,7 +72,6 @@ const uint8_t dataBit = digital_pin_to_bit_PGM_ct[MOSI];
 volatile byte shiftRegisterTimerTrigger = 0;
 
 // Shift Register
-float pwmFrequency = 120;
 byte maxBrightness = 254;
 byte numberOfShiftRegisters = 0;
 byte numberOfChannels = 0;
@@ -176,7 +176,7 @@ void setup()
 
 void loop()
 {
-    //setBrightnessForChannel(0, 150); // ???: Brightness goes from 100 - 255 for some reason
+    setBrightnessForChannel(0, 60); // ???: Brightness goes from 100 - 255 for some reason
     setBrightnessForChannel(1, 190);
     
     // Handle Shift Register Timer Interrupt
@@ -515,8 +515,8 @@ void detectShiftRegisters()
             sei();
         }
         
-        setBrightnessForChannel(0, 255);
-        fadeChannelNumberToBrightnessWithMillisecondsDuration(0, 128, 10000);
+        //setBrightnessForChannel(0, 0);
+        //fadeChannelNumberToBrightnessWithMillisecondsDuration(0, 255, 10000);
         
         #ifdef DEBUG
             Serial.print("bd:");
@@ -575,6 +575,7 @@ void handleZeroCross()
     // Only update the pwmFrequency if it has changed by ~1 hz
     if(averageZeroCrossTimeDifference > nominalZeroCrossTimeDifference + acceptableZeroCrossDeviationInMicroseconds || averageZeroCrossTimeDifference < nominalZeroCrossTimeDifference - acceptableZeroCrossDeviationInMicroseconds)
     {
+        // Update he frequency
         pwmFrequency = 1.0 / (averageZeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS);
         // Also update what we expect the zero cross time difference
         nominalZeroCrossTimeDifference = averageZeroCrossTimeDifference;
@@ -624,8 +625,6 @@ void handleShiftRegisterTimerInterrupt()
     // Write shift register latch clock low
     bitClear(*latchPort, latchBit);
     
-    // Write bogus bit to the SPI, because in the loop there is a receive before send.
-    SPDR = 0;
     // Do a whole shift register at once. This unrolls the loop for extra speed
     for(unsigned char i = numberOfShiftRegisters; i > 0; --i)
     {
@@ -641,14 +640,12 @@ void handleShiftRegisterTimerInterrupt()
         add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
         add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
         
-        // wait for last send to finish and retreive answer. Retreive must be done, otherwise the SPI will not work.
-        while (!(SPSR & _BV(SPIF)));
-        
         // Send the byte to the SPI
         SPDR = sendbyte;
+        
+        // wait for last send to finish and retreive answer. Retreive must be done, otherwise the SPI will not work.
+        while (!(SPSR & _BV(SPIF)));
     }
-    // Wait for the send to complete.
-    while(!(SPSR & _BV(SPIF)));
     
     // Write shift register latch clock high
     bitSet(*latchPort, latchBit);
