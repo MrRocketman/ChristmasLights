@@ -46,7 +46,6 @@ unsigned long nominalZeroCrossTimeDifference = (unsigned long)(1000000 / pwmFreq
 byte acceptableZeroCrossDeviationInMicroseconds = 100; // How much the zero crosses can change by before taking action
 unsigned long int zeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
 unsigned long int averageZeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
-volatile byte zeroCrossTrigger = 0;
 byte zeroCrossPin = 2;
 
 // Shift Register Detect Variables
@@ -69,19 +68,19 @@ volatile uint8_t *clockPort = port_to_output_PGM_ct[digital_pin_to_port_PGM_ct[S
 const uint8_t clockBit = digital_pin_to_bit_PGM_ct[SCK];
 volatile uint8_t *dataPort  = port_to_output_PGM_ct[digital_pin_to_port_PGM_ct[MOSI]];
 const uint8_t dataBit = digital_pin_to_bit_PGM_ct[MOSI];
-volatile byte shiftRegisterTimerTrigger = 0;
 
 // Shift Register
 byte maxBrightness = 254;
 byte numberOfShiftRegisters = 0;
 byte numberOfChannels = 0;
 byte *pwmValues = 0;
-byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
+volatile byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 
 // Dimming variables
 float *brightnessChangePerDimmingCycle = 0;
 float *tempPWMValues = 0;
 unsigned short *dimmingUpdatesCount = 0;
+volatile byte updateDimming = 0;
 
 #pragma mark - Method Declarations
 
@@ -179,18 +178,11 @@ void loop()
     setBrightnessForChannel(0, 60); // ???: Brightness goes from 100 - 255 for some reason
     setBrightnessForChannel(1, 190);
     
-    // Handle Shift Register Timer Interrupt
-    if(shiftRegisterTimerTrigger == 1)
+    // Handle dimming
+    if(updateDimming)
     {
-        handleShiftRegisterTimerInterrupt();
-        shiftRegisterTimerTrigger = 0;
-    }
-    
-    // Handle AC Zero Cross
-    if(zeroCrossTrigger == 1)
-    {
-        handleZeroCross();
-        zeroCrossTrigger = 0;
+        dimmingUpdate();
+        updateDimming = 0;
     }
     
     // Handle XBee data
@@ -558,8 +550,7 @@ byte shiftRegisterDetectValueIsNearValueWithRange(int compareValue, int range)
 // Hardware zero cross interrupt
 void zeroCrossDetect()
 {
-    // Set our flag that a zero Cross happened
-    zeroCrossTrigger = 1;
+    handleZeroCross();
 }
 
 // Handle the zero cross
@@ -587,7 +578,7 @@ void handleZeroCross()
     TCNT1 = 0;
     
     // Handle AC dimming (fading over time)
-    dimmingUpdate();
+    updateDimming = 1;
 }
 
 #pragma mark - Shift Register
@@ -595,8 +586,6 @@ void handleZeroCross()
 //Install the Interrupt Service Routine (ISR) for Timer1 compare and match A.
 ISR(TIMER1_COMPA_vect)
 {
-    // Set our flag that a shift register timer overflow happened
-    //shiftRegisterTimerTrigger = 1;
     handleShiftRegisterTimerInterrupt();
 }
 
@@ -661,7 +650,7 @@ void handleShiftRegisterTimerInterrupt()
     else
     {
         // Handle DC dimming (fading over time)
-        dimmingUpdate();
+        updateDimming = 1;
     }
 }
 
