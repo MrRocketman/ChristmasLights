@@ -80,8 +80,8 @@ byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 
 // Dimming variables
 float *brightnessChangePerDimmingCycle = 0;
+float *tempPWMValues = 0;
 unsigned short *dimmingUpdatesCount = 0;
-unsigned short *dimmingUpdatesTotal = 0;
 
 #pragma mark - Method Declarations
 
@@ -403,8 +403,8 @@ void fadeChannelNumberToBrightnessWithMillisecondsDuration(byte channelNumber, b
     if(isChannelNumberValid(channelNumber))
     {
         dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency);
-        dimmingUpdatesTotal[channelNumber] = dimmingUpdatesCount[channelNumber];
-        brightnessChangePerDimmingCycle[channelNumber] = (float)brightness / dimmingUpdatesCount[channelNumber];
+        brightnessChangePerDimmingCycle[channelNumber] = (float)(brightness - pwmValues[channelNumber]) / dimmingUpdatesCount[channelNumber];
+        tempPWMValues[channelNumber] = pwmValues[channelNumber];
     }
     
 #ifdef DEBUG
@@ -492,6 +492,10 @@ void detectShiftRegisters()
             pwmValues = (byte *)malloc(numberOfChannels * sizeof(byte));
             // Initialize all pwmValues to 0
             memset(pwmValues, 0, numberOfChannels * sizeof(byte));
+            // Resize tempPWMValues array
+            tempPWMValues = (float *)malloc(numberOfChannels * sizeof(float));
+            // Initialize all tempPWMValues to 0
+            memset(tempPWMValues, 0, numberOfChannels * sizeof(float));
             // Resize brightnessChangePerDimmingCycle array
             brightnessChangePerDimmingCycle = (float *)malloc(numberOfChannels * sizeof(float));
             // Initialize all brightnessChangePerDimmingCycle to 0
@@ -500,10 +504,6 @@ void detectShiftRegisters()
             dimmingUpdatesCount = (unsigned short *)malloc(numberOfChannels * sizeof(unsigned short));
             // Initialize all dimmingUpdatesCount to 0
             memset(dimmingUpdatesCount, 0, numberOfChannels * sizeof(unsigned short));
-            // Resize dimmingUpdatesTotal array
-            dimmingUpdatesTotal = (unsigned short *)malloc(numberOfChannels * sizeof(unsigned short));
-            // Initialize all dimmingUpdatesTotal to 0
-            memset(dimmingUpdatesTotal, 0, numberOfChannels * sizeof(unsigned short));
             // Re-enable interrupt
             sei();
         }
@@ -515,7 +515,8 @@ void detectShiftRegisters()
             sei();
         }
         
-        fadeChannelNumberToBrightnessWithMillisecondsDuration(0, 255, 10000);
+        setBrightnessForChannel(0, 255);
+        fadeChannelNumberToBrightnessWithMillisecondsDuration(0, 128, 10000);
         
         #ifdef DEBUG
             Serial.print("bd:");
@@ -632,13 +633,13 @@ void handleShiftRegisterTimerInterrupt()
         
         // Build the byte. One bit for each channel in this shift register
         add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
-        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
-        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
-        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
-        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
-        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
-        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
-        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex,  --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
+        add_one_pin_to_byte(sendbyte, shiftRegisterCurrentBrightnessIndex, --tempPWMValues);
         
         // wait for last send to finish and retreive answer. Retreive must be done, otherwise the SPI will not work.
         while (!(SPSR & _BV(SPIF)));
@@ -761,15 +762,9 @@ void dimmingUpdate()
         // Update a channel if it is still dimming
         if(dimmingUpdatesCount[i] > 0)
         {
-            
-            pwmValues[i] = (byte)(dimmingUpdatesTotal[i] - dimmingUpdatesCount[i]) * brightnessChangePerDimmingCycle[i];
-            Serial.print("c:");
-            Serial.print(i);
-            Serial.print(" dc:");
-            Serial.print(dimmingUpdatesCount[i]);
-            Serial.print(" v:");
-            Serial.println(pwmValues[i]);
-            dimmingUpdatesCount[i] = dimmingUpdatesCount[i] - 1;
+            tempPWMValues[i] += brightnessChangePerDimmingCycle[i];
+            pwmValues[i] = tempPWMValues[i];
+            dimmingUpdatesCount[i] --;
         }
     }
 }
