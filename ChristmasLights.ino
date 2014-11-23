@@ -577,12 +577,14 @@ void handleZeroCross()
     {
         // Update he frequency
         pwmFrequency = 1.0 / (averageZeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS);
+        // Update the shift register interrupt timer
+        OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
         // Also update what we expect the zero cross time difference
         nominalZeroCrossTimeDifference = averageZeroCrossTimeDifference;
     }
     
-    // Update the shift register interrupt timer
-    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
+    // Keep the shift register timer in phase with the zero cross
+    TCNT1 = 0;
     
     // Handle AC dimming (fading over time)
     dimmingUpdate();
@@ -594,7 +596,8 @@ void handleZeroCross()
 ISR(TIMER1_COMPA_vect)
 {
     // Set our flag that a shift register timer overflow happened
-    shiftRegisterTimerTrigger = 1;
+    //shiftRegisterTimerTrigger = 1;
+    handleShiftRegisterTimerInterrupt();
 }
 
 void initShiftRegisterInterruptTimer()
@@ -750,7 +753,7 @@ void printInterruptLoad()
 
 void dimmingUpdate()
 {
-    // Reset the brightness index if we've gone below 0
+    // Reset the brightness index to be in phase with the zero cross
     shiftRegisterCurrentBrightnessIndex = maxBrightness;
     
     // Handle the dimming over time for each channel
