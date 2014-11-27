@@ -76,8 +76,8 @@ byte *pwmValues = 0;
 volatile byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 
 // Dimming variables
-float *brightnessChangePerDimmingCycle = 0;
-float *temporaryPWMValues = 0;
+short *brightnessChangePerDimmingCycle = 0; // Fixed point 12.4 number to save on RAM
+short *temporaryPWMValues = 0; // Fixed point 12.4 number to save on RAM
 unsigned short *dimmingUpdatesCount = 0;
 volatile byte updateDimming = 0;
 #ifdef TESTING
@@ -394,15 +394,15 @@ void fadeChannelNumberToBrightnessWithMillisecondsDuration(byte channelNumber, b
     if(isChannelNumberValid(channelNumber))
     {
         dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency);
-        brightnessChangePerDimmingCycle[channelNumber] = (float)(brightness - pwmValues[channelNumber]) / dimmingUpdatesCount[channelNumber];
-        temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
+        brightnessChangePerDimmingCycle[channelNumber] = floatToFixedPoint((float)(brightness - pwmValues[channelNumber]) / dimmingUpdatesCount[channelNumber]);
+        temporaryPWMValues[channelNumber] = floatToFixedPoint((float)pwmValues[channelNumber]);
     }
     
 #ifdef DEBUG
     Serial.print("ch:");
     Serial.print(channelNumber);
     Serial.print(" p:");
-    Serial.println(brightnessChangePerDimmingCycle[channelNumber]);
+    Serial.println(fixedPointToFloat(brightnessChangePerDimmingCycle[channelNumber]));
 #endif
 }
 
@@ -485,14 +485,14 @@ void detectShiftRegisters()
             memset(pwmValues, 0, numberOfChannels * sizeof(byte));
             
             // Malloc temporaryPWMValues array
-            temporaryPWMValues = (float *)malloc(numberOfChannels * sizeof(float));
+            temporaryPWMValues = (short *)malloc(numberOfChannels * sizeof(short));
             // Initialize temporaryPWMValues array to 0
-            memset(temporaryPWMValues, 0, numberOfChannels * sizeof(float));
+            memset(temporaryPWMValues, 0, numberOfChannels * sizeof(short));
             
             // Malloc brightnessChangePerDimmingCycle array
-            brightnessChangePerDimmingCycle = (float *)malloc(numberOfChannels * sizeof(float));
+            brightnessChangePerDimmingCycle = (short *)malloc(numberOfChannels * sizeof(short));
             // Initialize brightnessChangePerDimmingCycle array to 0
-            memset(brightnessChangePerDimmingCycle, 0, numberOfChannels * sizeof(float));
+            memset(brightnessChangePerDimmingCycle, 0, numberOfChannels * sizeof(short));
             
             // Malloc dimmingUpdatesCount array
             dimmingUpdatesCount = (unsigned short *)malloc(numberOfChannels * sizeof(unsigned short));
@@ -762,8 +762,8 @@ void dimmingUpdate()
         // Update a channel if it is still dimming
         if(dimmingUpdatesCount[i] > 0)
         {
-            temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
-            pwmValues[i] = temporaryPWMValues[i];
+            temporaryPWMValues[i] = fixedPointAdd(temporaryPWMValues[i], brightnessChangePerDimmingCycle[i]);
+            pwmValues[i] = (byte)fixedPointToFloat(temporaryPWMValues[i]);
             dimmingUpdatesCount[i] --;
         }
     }
@@ -792,3 +792,59 @@ void dimmingTest()
 }
 
 #endif
+
+#pragma mark - Fixed Point Math
+
+const double MIN_REAL = (short)0x8000 / 64.0;
+const double MAX_REAL = (short)0x7fff / 64.0;
+
+short floatToFixedPoint(float x)
+{
+    if(x < MIN_REAL || x > MAX_REAL)
+    {
+        return 0;
+    }
+    else
+    {
+        return (short)(x * 64.0);
+    }
+}
+
+float fixedPointToFloat(short x)
+{
+    return x / 64.0;
+}
+
+short fixedPointCheck(long x)
+{
+    if(x < MIN_REAL)
+    {
+        return 0;
+    }
+    else
+    {
+        return (short)x;
+    }
+}
+
+short fixedPointAdd(short x, short y)
+{
+    return fixedPointCheck((long)x + (long)y);
+}
+
+short fixedPointSubtract(short x, short y)
+{
+    return fixedPointCheck((long)x - (long)y);
+}
+
+short fixed_point_mul(short x, short y)
+{
+    long r = (long)x * (long)y;
+    return fixedPointCheck(r >> 4);
+}
+
+short fixed_point_div(short x, short y)
+{
+    long r = ((long)x << 4) / (long)y;
+    return fixedPointCheck(r);
+}
