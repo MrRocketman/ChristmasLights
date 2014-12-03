@@ -243,30 +243,41 @@ void processPacket()
         // Read in the commandID byte
         readNextByteInPacket();
         
-        if(currentByteFromPacket == 0x01) // Command 0x01 (1 channel on)
+        if(currentByteFromPacket == 0x00) // Command 0x00 (1 channel on)
         {
             readNextByteInPacket();
             
             turnOnChannel(currentByteFromPacket);
         }
-        else if(currentByteFromPacket == 0x02) // Command 0x02 (1 Channel off)
+        else if(currentByteFromPacket == 0x01) // Command 0x01 (1 Channel off)
         {
             readNextByteInPacket();
             
             turnOffChannel(currentByteFromPacket);
         }
-        else if(currentByteFromPacket == 0x03) // Command 0x03 (All on)
+        else if(currentByteFromPacket == 0x02) // Command 0x02 (All on)
         {
             for(byte i = 0; i < numberOfChannels; i ++)
             {
                 turnOnChannel(i);
             }
         }
-        else if(currentByteFromPacket == 0x04) // Command 0x04 (All off)
+        else if(currentByteFromPacket == 0x03) // Command 0x03 (All off)
         {
             for(byte i = 0; i < numberOfChannels; i ++)
             {
                 turnOffChannel(i);
+            }
+        }
+        else if(currentByteFromPacket == 0x04) // Command 0x04 (1 bit state for all channels)
+        {
+            byte startingIndex = 0;
+            // Loop through only the data bytes (skip the end of packet byte)
+            while(currentByteIndex < packetBufferLength - 1)
+            {
+                readNextByteInPacket();
+                turn8ChannelsOnOffStartingAtChannelNumber(startingIndex * 8);
+                startingIndex ++;
             }
         }
         else if(currentByteFromPacket == 0x05) // Command 0x05 (1 channel brightness)
@@ -474,6 +485,22 @@ void turnOnChannel(byte channelNumber)
 void turnOffChannel(byte channelNumber)
 {
     setBrightnessForChannel(channelNumber, 0);
+}
+
+void turn8ChannelsOnOffStartingAtChannelNumber(byte startingChannelNumber)
+{
+    byte channelStates = currentByteFromPacket;
+    for(byte i = 0; i < 8; i ++)
+    {
+        if(channelStates & (1 << i - 1)) // If the state for this channel is 1 (on)
+        {
+            setBrightnessForChannel((startingChannelNumber + i), maxBrightness);
+        }
+        else
+        {
+            setBrightnessForChannel((startingChannelNumber + i), 0);
+        }
+    }
 }
 
 void setBrightnessForChannel(byte channelNumber, byte brightness)

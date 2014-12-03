@@ -1,10 +1,12 @@
 // ******** Commands ************ //
 // BoardID  Command     Data                                                            End of Packet Byte      Description
 //
-// 0x01     0x01        0x45(ch #)                                                                  0xFF        1 Channel on
-// 0x01     0x02        0x8A(ch #)                                                                  0xFF        1 Channel off
-// 0x01     0x03                                                                                    0xFF        All channels on
-// 0x01     0x04                                                                                    0xFF        All channels off
+// 0x01     0x00        0x45(ch #)                                                                  0xFF        1 Channel on
+// 0x01     0x01        0x8A(ch #)                                                                  0xFF        1 Channel off
+// 0x01     0x02                                                                                    0xFF        All channels on
+// 0x01     0x03                                                                                    0xFF        All channels off
+//
+// 0x01     0x04        0x05(0b00000101 = channel 0, 2 on; All others off) 0x01(channel 8 on) ....  0xFF        N Channel state
 //
 // 0x01     0x05        0x10(Ch #) 0x5F(Dim)                                                        0xFF        Set Brightness for 1 channel
 // 0x01     0x06        0x5F(Dim)                                                                   0xFF        Set Brightness for all channels
