@@ -243,32 +243,19 @@ void processPacket()
         // Read in the commandID byte
         readNextByteInPacket();
         
-        if(currentByteFromPacket == 0x00) // Command 0x00 (1 channel on)
+        if(currentByteFromPacket == 0x01) // Command 0x00 (1 channel on)
         {
             readNextByteInPacket();
             
             turnOnChannel(currentByteFromPacket);
         }
-        else if(currentByteFromPacket == 0x01) // Command 0x01 (1 Channel off)
+        else if(currentByteFromPacket == 0x02) // Command 0x01 (1 Channel off)
         {
             readNextByteInPacket();
             
             turnOffChannel(currentByteFromPacket);
         }
-        else if(currentByteFromPacket == 0x02) // Command 0x02 (All on)
-        {
-            for(byte i = 0; i < numberOfChannels; i ++)
-            {
-                turnOnChannel(i);
-            }
-        }
-        else if(currentByteFromPacket == 0x03) // Command 0x03 (All off)
-        {
-            for(byte i = 0; i < numberOfChannels; i ++)
-            {
-                turnOffChannel(i);
-            }
-        }
+        // This legacy support is bad because an 0xFF could be sent which is an end of packet so this will never get called
         else if(currentByteFromPacket == 0x04) // Command 0x04 (1 bit state for all channels)
         {
             byte startingIndex = 0;
@@ -280,7 +267,7 @@ void processPacket()
                 startingIndex ++;
             }
         }
-        else if(currentByteFromPacket == 0x05) // Command 0x05 (1 channel brightness)
+        else if(currentByteFromPacket == 0x10) // Command 0x05 (1 channel brightness)
         {
             readNextByteInPacket();
             byte channelNumber = currentByteFromPacket;
@@ -289,7 +276,7 @@ void processPacket()
             
             setBrightnessForChannel(channelNumber, currentByteFromPacket);
         }
-        else if(currentByteFromPacket == 0x06) // Command 0x06 (All brightness)
+        else if(currentByteFromPacket == 0x11) // Command 0x06 (All brightness)
         {
             readNextByteInPacket();
             
@@ -298,8 +285,22 @@ void processPacket()
                 setBrightnessForChannel(i, currentByteFromPacket);
             }
         }
+        else if(currentByteFromPacket == 0x15) // Command 0x02 (All on)
+        {
+            for(byte i = 0; i < numberOfChannels; i ++)
+            {
+                turnOnChannel(i);
+            }
+        }
+        else if(currentByteFromPacket == 0x16) // Command 0x03 (All off)
+        {
+            for(byte i = 0; i < numberOfChannels; i ++)
+            {
+                turnOffChannel(i);
+            }
+        }
         // Fade channel
-        else if(currentByteFromPacket == 0x07 || currentByteFromPacket == 0x08 || currentByteFromPacket == 0x09 || currentByteFromPacket == 0x0A || currentByteFromPacket == 0x0B || currentByteFromPacket == 0x0C)
+        else if(currentByteFromPacket == 0x20 || currentByteFromPacket == 0x21 || currentByteFromPacket == 0x22 || currentByteFromPacket == 0x23 || currentByteFromPacket == 0x24 || currentByteFromPacket == 0x25)
         {
             byte commandID = currentByteFromPacket;
             byte channelNumber;
@@ -313,21 +314,21 @@ void processPacket()
             channelNumber = currentByteFromPacket;
             
             // Fade up
-            if(commandID == 0x07 || commandID == 0x08)
+            if(commandID == 0x20 || commandID == 0x21)
             {
                 // Get the end brightness
                 startBrightness = 0;
                 endBrightness = maxBrightness;
             }
             // Fade down
-            if(commandID == 0x09 || commandID == 0x0A)
+            if(commandID == 0x22 || commandID == 0x23)
             {
                 // Get the end brightness
                 startBrightness = maxBrightness;
                 endBrightness = 0;
             }
             // Fade from x to y
-            if(commandID == 0x0B || commandID == 0x0C)
+            if(commandID == 0x24 || commandID == 0x25)
             {
                 // Get the startBrightness
                 readNextByteInPacket();
@@ -355,14 +356,14 @@ void processPacket()
             }
             
             // Get the fade time in hundreths
-            if(commandID == 0x07 || commandID == 0x09 || commandID == 0x0B)
+            if(commandID == 0x20 || commandID == 0x22 || commandID == 0x24)
             {
                 readNextByteInPacket();
                 fadeTimeInHundrethsOfSeconds = currentByteFromPacket;
                 fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, startBrightness, endBrightness, fadeTimeInHundrethsOfSeconds * 10);
             }
-            // Get the fade time in hundreths
-            else if(commandID == 0x08 || commandID == 0x0A || commandID == 0x0C)
+            // Get the fade time in tenths
+            else if(commandID == 0x21 || commandID == 0x23 || commandID == 0x25)
             {
                 readNextByteInPacket();
                 fadeTimeInTenthsOfSeconds = currentByteFromPacket;
@@ -371,7 +372,7 @@ void processPacket()
             }
         }
         // Fade all
-        else if(currentByteFromPacket == 0x0D || currentByteFromPacket == 0x0E || currentByteFromPacket == 0x0F || currentByteFromPacket == 0x10 || currentByteFromPacket == 0x11 || currentByteFromPacket == 0x12)
+        else if(currentByteFromPacket == 0x30 || currentByteFromPacket == 0x31 || currentByteFromPacket == 0x32 || currentByteFromPacket == 0x33 || currentByteFromPacket == 0x34 || currentByteFromPacket == 0x35)
         {
             byte commandID = currentByteFromPacket;
             byte startBrightness;
@@ -380,21 +381,21 @@ void processPacket()
             byte fadeTimeInTenthsOfSeconds;
             
             // Fade up
-            if(commandID == 0x0D || commandID == 0x0E)
+            if(commandID == 0x30 || commandID == 0x31)
             {
                 // Get the end brightness
                 startBrightness = 0;
                 endBrightness = maxBrightness;
             }
             // Fade down
-            if(commandID == 0x0F || commandID == 0x10)
+            if(commandID == 0x32 || commandID == 0x33)
             {
                 // Get the end brightness
                 startBrightness = maxBrightness;
                 endBrightness = 0;
             }
             // Fade from x to y
-            if(commandID == 0x11 || commandID == 0x12)
+            if(commandID == 0x34 || commandID == 0x35)
             {
                 // Get the startBrightness
                 readNextByteInPacket();
@@ -422,7 +423,7 @@ void processPacket()
             }
             
             // Get the fade time in hundreths
-            if(commandID == 0x0D || commandID == 0x0F || commandID == 0x11)
+            if(commandID == 0x30 || commandID == 0x32 || commandID == 0x34)
             {
                 readNextByteInPacket();
                 fadeTimeInHundrethsOfSeconds = currentByteFromPacket;
@@ -433,7 +434,7 @@ void processPacket()
                 }
             }
             // Get the fade time in hundreths
-            else if(commandID == 0x0E || commandID == 0x10 || commandID == 0x12)
+            else if(commandID == 0x31 || commandID == 0x33 || commandID == 0x35)
             {
                 readNextByteInPacket();
                 fadeTimeInTenthsOfSeconds = currentByteFromPacket;
@@ -487,12 +488,13 @@ void turnOffChannel(byte channelNumber)
     setBrightnessForChannel(channelNumber, 0);
 }
 
+// This legacy support is bad because an 0xFF could be sent which is an end of packet so this will never get called
 void turn8ChannelsOnOffStartingAtChannelNumber(byte startingChannelNumber)
 {
     byte channelStates = currentByteFromPacket;
     for(byte i = 0; i < 8; i ++)
     {
-        if(channelStates & (1 << i - 1)) // If the state for this channel is 1 (on)
+        if(channelStates & (1 << i)) // If the state for this channel is 1 (off)
         {
             setBrightnessForChannel((startingChannelNumber + i), maxBrightness);
         }

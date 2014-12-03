@@ -1,28 +1,31 @@
 // ******** Commands ************ //
 // BoardID  Command     Data                                                            End of Packet Byte      Description
 //
-// 0x01     0x00        0x45(ch #)                                                                  0xFF        1 Channel on
-// 0x01     0x01        0x8A(ch #)                                                                  0xFF        1 Channel off
-// 0x01     0x02                                                                                    0xFF        All channels on
-// 0x01     0x03                                                                                    0xFF        All channels off
+// 0x01     0x01        0x45(ch #)                                                                  0xFF        1 Channel on
+// 0x01     0x02        0x8A(ch #)                                                                  0xFF        1 Channel off
 //
 // 0x01     0x04        0x05(0b00000101 = channel 0, 2 on; All others off) 0x01(channel 8 on) ....  0xFF        N Channel state
 //
-// 0x01     0x05        0x10(Ch #) 0x5F(Dim)                                                        0xFF        Set Brightness for 1 channel
-// 0x01     0x06        0x5F(Dim)                                                                   0xFF        Set Brightness for all channels
+// 0x01     0x10        0x10(Ch #) 0x5F(Dim)                                                        0xFF        Set Brightness for 1 channel
+// 0x01     0x11        0x5F(Dim)                                                                   0xFF        Set Brightness for all channels
 //
-// 0x01     0x07        0x10(Ch #) 0xEE(Time - 0.01 sec per bit)                                    0xFF        Fade channel up over time (hundreths)
-// 0x01     0x08        0x10(Ch #) 0xEE(Time - 0.1 sec per bit)                                     0xFF        Fade channel up over time (tenths)
-// 0x01     0x09        0x10(Ch #) 0xEE(Time - 0.01 sec per bit)                                    0xFF        Fade channel down over time (hundreths)
-// 0x01     0x0A        0x10(Ch #) 0xEE(Time - 0.1 sec per bit)                                     0xFF        Fade channel down over time (tenths)
-// 0x01     0x0B        0x10(Ch #) 0xF0(Start Dim) 0xFF(End Dim) 0xEE(Time - 0.01 sec per bit)      0xFF        Fade channel from x to y over time (hundreths)
-// 0x01     0x0C        0x10(Ch #) 0xF0(Start Dim) 0xFF(End Dim) 0xEE(Time - 0.1 sec per bit)       0xFF        Fade channel from x to y over time (tenths)
-// 0x01     0x0D        0xEE(Time - 0.01 sec per bit)                                               0xFF        Fade all up over time (hundreths)
-// 0x01     0x0E        0xEE(Time - 0.1 sec per bit)                                                0xFF        Fade all up over time (tenths)
-// 0x01     0x0F        0xEE(Time - 0.01 sec per bit)                                               0xFF        Fade all down over time (hundreths)
-// 0x01     0x10        0xEE(Time - 0.1 sec per bit)                                                0xFF        Fade all down over time (tenths)
-// 0x01     0x11        0xF0(Start Dim) 0xFF(End Dim) 0xEE(Time - 0.01 sec per bit)                 0xFF        Fade all from x to y over time (hundreths)
-// 0x01     0x12        0xF0(Start Dim) 0xFF(End Dim) 0xEE(Time - 0.1 sec per bit)                  0xFF        Fade all from x to y over time (tenths)
+// 0x01     0x15                                                                                    0xFF        All channels on
+// 0x01     0x16                                                                                    0xFF        All channels off
+//
+// 0x01     0x20        0x10(Ch #) 0xEE(Time - 0.01 sec per bit)                                    0xFF        Fade channel up over time (hundreths)
+// 0x01     0x21        0x10(Ch #) 0xEE(Time - 0.1 sec per bit)                                     0xFF        Fade channel up over time (tenths)
+// 0x01     0x22        0x10(Ch #) 0xEE(Time - 0.01 sec per bit)                                    0xFF        Fade channel down over time (hundreths)
+// 0x01     0x23        0x10(Ch #) 0xEE(Time - 0.1 sec per bit)                                     0xFF        Fade channel down over time (tenths)
+// 0x01     0x24        0x10(Ch #) 0xF0(Start Dim) 0xFF(End Dim) 0xEE(Time - 0.01 sec per bit)      0xFF        Fade channel from x to y over time (hundreths)
+// 0x01     0x25        0x10(Ch #) 0xF0(Start Dim) 0xFF(End Dim) 0xEE(Time - 0.1 sec per bit)       0xFF        Fade channel from x to y over time (tenths)
+//
+// 0x01     0x30        0xEE(Time - 0.01 sec per bit)                                               0xFF        Fade all up over time (hundreths)
+// 0x01     0x31        0xEE(Time - 0.1 sec per bit)                                                0xFF        Fade all up over time (tenths)
+// 0x01     0x32        0xEE(Time - 0.01 sec per bit)                                               0xFF        Fade all down over time (hundreths)
+// 0x01     0x33        0xEE(Time - 0.1 sec per bit)                                                0xFF        Fade all down over time (tenths)
+// 0x01     0x34        0xF0(Start Dim) 0xFF(End Dim) 0xEE(Time - 0.01 sec per bit)                 0xFF        Fade all from x to y over time (hundreths)
+// 0x01     0x35        0xF0(Start Dim) 0xFF(End Dim) 0xEE(Time - 0.1 sec per bit)                  0xFF        Fade all from x to y over time (tenths)
+//
 //
 // 0x01     0xF1                                                                                    0xFF        Rquest status (number of boards)
 
