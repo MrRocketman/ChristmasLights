@@ -266,10 +266,25 @@ void processPacket()
                 startingIndex ++;
             }
         }
+        else if(currentByteFromPacket == 0x05) // Command 0x05 (1 Channel on for time in hundreths)
+        {
+            byte channelNumber = readNextByteInPacket();
+            byte fadeTimeInHundrethsOfSeconds = readNextByteInPacket();
+            fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, maxBrightness, maxBrightness, fadeTimeInHundrethsOfSeconds * 10);
+            
+        }
+        else if(currentByteFromPacket == 0x06) // Command 0x06 (1 Channel on for time in tenths)
+        {
+            byte channelNumber = readNextByteInPacket();
+            byte fadeTimeInTenthsOfSeconds = readNextByteInPacket();
+            fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, maxBrightness, maxBrightness, fadeTimeInTenthsOfSeconds * 100);
+            
+        }
         else if(currentByteFromPacket == 0x10) // Command 0x10 (1 brightness)
         {
             byte channelNumber = readNextByteInPacket();
-            setBrightnessForChannel(channelNumber, readNextByteInPacket());
+            byte brightness = readNextByteInPacket();
+            setBrightnessForChannel(channelNumber, brightness);
         }
         else if(currentByteFromPacket == 0x11) // Command 0x11 (All brightness)
         {
@@ -279,6 +294,22 @@ void processPacket()
             {
                 setBrightnessForChannel(i, currentByteFromPacket);
             }
+        }
+        else if(currentByteFromPacket == 0x12) // Command 0x12 (1 Channel brightness for time in hundreths)
+        {
+            byte channelNumber = readNextByteInPacket();
+            byte brightness = readNextByteInPacket();
+            byte fadeTimeInHundrethsOfSeconds = readNextByteInPacket();
+            fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, brightness, brightness, fadeTimeInHundrethsOfSeconds * 10);
+            
+        }
+        else if(currentByteFromPacket == 0x13) // Command 0x13 (1 Channel brightness for time in tenths)
+        {
+            byte channelNumber = readNextByteInPacket();
+            byte brightness = readNextByteInPacket();
+            byte fadeTimeInTenthsOfSeconds = readNextByteInPacket();
+            fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, brightness, brightness, fadeTimeInTenthsOfSeconds * 100);
+            
         }
         else if(currentByteFromPacket == 0x15) // Command 0x15 (All on)
         {
