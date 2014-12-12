@@ -79,6 +79,7 @@ volatile byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 float *brightnessChangePerDimmingCycle = 0;
 float *temporaryPWMValues = 0;
 unsigned short *dimmingUpdatesCount = 0;
+byte *finalPWMValues = 0;
 volatile byte updateDimming = 0;
 #ifdef TESTING
     byte *dimmingDirection; // For testing only
@@ -88,7 +89,7 @@ volatile byte updateDimming = 0;
 
 // Packet Processing
 void processPacket();
-void readNextByteInPacket();
+byte readNextByteInPacket();
 void clearPacketBuffer();
 
 // State changing methods
@@ -235,90 +236,85 @@ void processPacket()
 #endif
     
     // Read in the boardID byte
-    readNextByteInPacket();
+    byte boardIDByte = readNextByteInPacket();
     
     // Only process the packet if it's for this board
-    if(currentByteFromPacket == boardID)
+    if(boardIDByte == boardID)
     {
         // Read in the commandID byte
-        readNextByteInPacket();
+        byte commandID = readNextByteInPacket();
         
-        if(currentByteFromPacket == 0x01) // Command 0x00 (1 channel on)
+        if(commandID == 0x01) // Command 0x00 (1 channel on)
         {
-            readNextByteInPacket();
-            
-            turnOnChannel(currentByteFromPacket);
+            turnOnChannel(readNextByteInPacket());
         }
-        else if(currentByteFromPacket == 0x02) // Command 0x01 (1 Channel off)
+        else if(commandID == 0x02) // Command 0x01 (1 Channel off)
         {
-            readNextByteInPacket();
-            
-            turnOffChannel(currentByteFromPacket);
+            turnOffChannel(readNextByteInPacket());
         }
-        else if(currentByteFromPacket == 0x04) // Command 0x04 (1 bit state for all channels)
+        else if(commandID == 0x04) // Command 0x04 (1 bit state for all channels)
         {
             byte startingIndex = 0;
             // Loop through only the data bytes (skip the end of packet byte)
             while(currentByteIndex < packetBufferLength - 1)
             {
-                readNextByteInPacket();
-                turn8ChannelsOnOffStartingAtChannelNumber(startingIndex * 8);
+                turn8ChannelsOnOffStartingAtChannelNumber(startingIndex * 8, readNextByteInPacket());
                 startingIndex ++;
             }
         }
-        else if(currentByteFromPacket == 0x05) // Command 0x05 (1 Channel on for time in hundreths)
+        else if(commandID == 0x05) // Command 0x05 (1 Channel on for time in hundreths)
         {
             byte channelNumber = readNextByteInPacket();
             byte fadeTimeInHundrethsOfSeconds = readNextByteInPacket();
-            fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, maxBrightness, maxBrightness, fadeTimeInHundrethsOfSeconds * 10);
+            channelBrightnessWithMillisecondsDuration(channelNumber, maxBrightness, fadeTimeInHundrethsOfSeconds * 10);
             
         }
-        else if(currentByteFromPacket == 0x06) // Command 0x06 (1 Channel on for time in tenths)
+        else if(commandID == 0x06) // Command 0x06 (1 Channel on for time in tenths)
         {
             byte channelNumber = readNextByteInPacket();
             byte fadeTimeInTenthsOfSeconds = readNextByteInPacket();
-            fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, maxBrightness, maxBrightness, fadeTimeInTenthsOfSeconds * 100);
+            channelBrightnessWithMillisecondsDuration(channelNumber, maxBrightness, fadeTimeInTenthsOfSeconds * 100);
             
         }
-        else if(currentByteFromPacket == 0x10) // Command 0x10 (1 brightness)
+        else if(commandID == 0x10) // Command 0x10 (1 brightness)
         {
             byte channelNumber = readNextByteInPacket();
             byte brightness = readNextByteInPacket();
             setBrightnessForChannel(channelNumber, brightness);
         }
-        else if(currentByteFromPacket == 0x11) // Command 0x11 (All brightness)
+        else if(commandID == 0x11) // Command 0x11 (All brightness)
         {
-            readNextByteInPacket();
+            byte brightness = readNextByteInPacket();
             
             for(byte i = 0; i < numberOfChannels; i ++)
             {
-                setBrightnessForChannel(i, currentByteFromPacket);
+                setBrightnessForChannel(i, brightness);
             }
         }
-        else if(currentByteFromPacket == 0x12) // Command 0x12 (1 Channel brightness for time in hundreths)
+        else if(commandID == 0x12) // Command 0x12 (1 Channel brightness for time in hundreths)
         {
             byte channelNumber = readNextByteInPacket();
             byte brightness = readNextByteInPacket();
             byte fadeTimeInHundrethsOfSeconds = readNextByteInPacket();
-            fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, brightness, brightness, fadeTimeInHundrethsOfSeconds * 10);
+            channelBrightnessWithMillisecondsDuration(channelNumber, brightness, fadeTimeInHundrethsOfSeconds * 10);
             
         }
-        else if(currentByteFromPacket == 0x13) // Command 0x13 (1 Channel brightness for time in tenths)
+        else if(commandID == 0x13) // Command 0x13 (1 Channel brightness for time in tenths)
         {
             byte channelNumber = readNextByteInPacket();
             byte brightness = readNextByteInPacket();
             byte fadeTimeInTenthsOfSeconds = readNextByteInPacket();
-            fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, brightness, brightness, fadeTimeInTenthsOfSeconds * 100);
+            channelBrightnessWithMillisecondsDuration(channelNumber, brightness, fadeTimeInTenthsOfSeconds * 100);
             
         }
-        else if(currentByteFromPacket == 0x15) // Command 0x15 (All on)
+        else if(commandID == 0x15) // Command 0x15 (All on)
         {
             for(byte i = 0; i < numberOfChannels; i ++)
             {
                 turnOnChannel(i);
             }
         }
-        else if(currentByteFromPacket == 0x16) // Command 0x16 (All off)
+        else if(commandID == 0x16) // Command 0x16 (All off)
         {
             for(byte i = 0; i < numberOfChannels; i ++)
             {
@@ -326,9 +322,8 @@ void processPacket()
             }
         }
         // Fade channel/all
-        else if(currentByteFromPacket == 0x20 || currentByteFromPacket == 0x21 || currentByteFromPacket == 0x22 || currentByteFromPacket == 0x23 || currentByteFromPacket == 0x24 || currentByteFromPacket == 0x25 || currentByteFromPacket == 0x30 || currentByteFromPacket == 0x31 || currentByteFromPacket == 0x32 || currentByteFromPacket == 0x33 || currentByteFromPacket == 0x34 || currentByteFromPacket == 0x35)
+        else if(commandID == 0x20 || commandID == 0x21 || commandID == 0x22 || commandID == 0x23 || commandID == 0x24 || commandID == 0x25 || commandID == 0x30 || commandID == 0x31 || commandID == 0x32 || commandID == 0x33 || commandID == 0x34 || commandID == 0x35)
         {
-            byte commandID = currentByteFromPacket;
             byte channelNumber;
             byte startBrightness;
             byte endBrightness;
@@ -336,8 +331,7 @@ void processPacket()
             byte fadeTimeInTenthsOfSeconds;
             
             // Get the channel number
-            readNextByteInPacket();
-            channelNumber = currentByteFromPacket;
+            channelNumber = readNextByteInPacket();
             
             // Fade up
             if(commandID == 0x20 || commandID == 0x21 || commandID == 0x30 || commandID == 0x31)
@@ -357,8 +351,7 @@ void processPacket()
             if(commandID == 0x24 || commandID == 0x25 || commandID == 0x34 || commandID == 0x35)
             {
                 // Get the startBrightness
-                readNextByteInPacket();
-                startBrightness = currentByteFromPacket;
+                startBrightness = readNextByteInPacket();
                 if(startBrightness > maxBrightness)
                 {
                     startBrightness = maxBrightness;
@@ -369,8 +362,7 @@ void processPacket()
                 }
                 
                 // Get the endBrightness
-                readNextByteInPacket();
-                endBrightness = currentByteFromPacket;
+                endBrightness = readNextByteInPacket();
                 if(endBrightness > maxBrightness)
                 {
                     endBrightness = maxBrightness;
@@ -384,23 +376,20 @@ void processPacket()
             // Fade channel in hundreths
             if(commandID == 0x20 || commandID == 0x22 || commandID == 0x24)
             {
-                readNextByteInPacket();
-                fadeTimeInHundrethsOfSeconds = currentByteFromPacket;
+                fadeTimeInHundrethsOfSeconds = readNextByteInPacket();
                 fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, startBrightness, endBrightness, fadeTimeInHundrethsOfSeconds * 10);
             }
             // Fade channel in tenths
             else if(commandID == 0x21 || commandID == 0x23 || commandID == 0x25)
             {
-                readNextByteInPacket();
-                fadeTimeInTenthsOfSeconds = currentByteFromPacket;
+                fadeTimeInTenthsOfSeconds = readNextByteInPacket();
                 // Set the fade
                 fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, startBrightness, endBrightness, fadeTimeInTenthsOfSeconds * 100);
             }
             // Fade all hundredths
             else if(commandID == 0x30 || commandID == 0x32 || commandID == 0x34)
             {
-                readNextByteInPacket();
-                fadeTimeInHundrethsOfSeconds = currentByteFromPacket;
+                fadeTimeInHundrethsOfSeconds = readNextByteInPacket();
                 // Set the fade
                 for(byte i = 0; i < numberOfChannels; i ++)
                 {
@@ -410,8 +399,7 @@ void processPacket()
             // Fade all tenths
             else if(commandID == 0x31 || commandID == 0x33 || commandID == 0x35)
             {
-                readNextByteInPacket();
-                fadeTimeInTenthsOfSeconds = currentByteFromPacket;
+                fadeTimeInTenthsOfSeconds = readNextByteInPacket();
                 // Set the fade
                 for(byte i = 0; i < numberOfChannels; i ++)
                 {
@@ -419,14 +407,14 @@ void processPacket()
                 }
             }
         }
-        else if(currentByteFromPacket == 0xF1) // Command 0xF1 (Request status - number of boards connected)
+        else if(commandID == 0xF1) // Command 0xF1 (Request status - number of boards connected)
         {
             Serial.println(numberOfShiftRegisters);
         }
     }
 }
 
-void readNextByteInPacket()
+byte readNextByteInPacket()
 {
     // If we aren't past the end of our buffer, get the next buffered byte
     if(currentByteIndex < packetBufferLength)
@@ -439,6 +427,8 @@ void readNextByteInPacket()
     }
     
     currentByteIndex ++;
+    
+    return currentByteFromPacket;
 }
 
 void clearPacketBuffer()
@@ -462,9 +452,8 @@ void turnOffChannel(byte channelNumber)
     setBrightnessForChannel(channelNumber, 0);
 }
 
-void turn8ChannelsOnOffStartingAtChannelNumber(byte startingChannelNumber)
+void turn8ChannelsOnOffStartingAtChannelNumber(byte startingChannelNumber, byte channelStates)
 {
-    byte channelStates = currentByteFromPacket;
     for(byte i = 0; i < 8; i ++)
     {
         if(channelStates & (1 << i)) // If the state for this channel is 1 (off)
@@ -496,6 +485,27 @@ void setBrightnessForChannel(byte channelNumber, byte brightness)
 #endif
 }
 
+void channelBrightnessWithMillisecondsDuration(byte channelNumber, byte brightness, unsigned long milliseconds)
+{
+    // Set the brightnessChangePerDimmingCycle if the channel is valid
+    if(isChannelNumberValid(channelNumber))
+    {
+        pwmValues[channelNumber] = brightness;
+        
+        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 1;
+        brightnessChangePerDimmingCycle[channelNumber] = 0;
+        temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
+        finalPWMValues[channelNumber] = 0;
+    }
+    
+#ifdef DEBUG
+    Serial.print("ch:");
+    Serial.print(channelNumber);
+    Serial.print(" p:");
+    Serial.println(brightnessChangePerDimmingCycle[channelNumber]);
+#endif
+}
+
 void fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(byte channelNumber, byte startBrightness, byte endBrightness, unsigned long milliseconds)
 {
     // Set the brightnessChangePerDimmingCycle if the channel is valid
@@ -503,9 +513,10 @@ void fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(byte ch
     {
         pwmValues[channelNumber] = startBrightness;
         
-        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency);
+        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 1;
         brightnessChangePerDimmingCycle[channelNumber] = (float)(endBrightness - startBrightness) / dimmingUpdatesCount[channelNumber];
         temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
+        finalPWMValues[channelNumber] = endBrightness;
     }
     
 #ifdef DEBUG
@@ -593,6 +604,11 @@ void detectShiftRegisters()
             pwmValues = (byte *)malloc(numberOfChannels * sizeof(byte));
             // Initialize pwmValues array to 0
             memset(pwmValues, 0, numberOfChannels * sizeof(byte));
+            
+            // Malloc finalPWMValues array
+            finalPWMValues = (byte *)malloc(numberOfChannels * sizeof(byte));
+            // Initialize pwmValues array to 0
+            memset(finalPWMValues, 0, numberOfChannels * sizeof(byte));
             
             // Malloc temporaryPWMValues array
             temporaryPWMValues = (float *)malloc(numberOfChannels * sizeof(float));
@@ -875,6 +891,10 @@ void dimmingUpdate()
             temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
             pwmValues[i] = temporaryPWMValues[i];
             dimmingUpdatesCount[i] --;
+            if(dimmingUpdatesCount[i] == 0)
+            {
+                pwmValues[i] = finalPWMValues[i];
+            }
         }
     }
 }
