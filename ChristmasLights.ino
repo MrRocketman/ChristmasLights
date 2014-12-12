@@ -255,7 +255,6 @@ void processPacket()
             
             turnOffChannel(currentByteFromPacket);
         }
-        // This legacy support is bad because an 0xFF could be sent which is an end of packet so this will never get called
         else if(currentByteFromPacket == 0x04) // Command 0x04 (1 bit state for all channels)
         {
             byte startingIndex = 0;
@@ -267,15 +266,6 @@ void processPacket()
                 startingIndex ++;
             }
         }
-        else if(currentByteFromPacket == 0x10) // Command 0x05 (1 channel brightness)
-        {
-            readNextByteInPacket();
-            byte channelNumber = currentByteFromPacket;
-            
-            readNextByteInPacket();
-            
-            setBrightnessForChannel(channelNumber, currentByteFromPacket);
-        }
         else if(currentByteFromPacket == 0x11) // Command 0x06 (All brightness)
         {
             readNextByteInPacket();
@@ -285,22 +275,22 @@ void processPacket()
                 setBrightnessForChannel(i, currentByteFromPacket);
             }
         }
-        else if(currentByteFromPacket == 0x15) // Command 0x02 (All on)
+        else if(currentByteFromPacket == 0x15) // Command 0x15 (All on)
         {
             for(byte i = 0; i < numberOfChannels; i ++)
             {
                 turnOnChannel(i);
             }
         }
-        else if(currentByteFromPacket == 0x16) // Command 0x03 (All off)
+        else if(currentByteFromPacket == 0x16) // Command 0x16 (All off)
         {
             for(byte i = 0; i < numberOfChannels; i ++)
             {
                 turnOffChannel(i);
             }
         }
-        // Fade channel
-        else if(currentByteFromPacket == 0x20 || currentByteFromPacket == 0x21 || currentByteFromPacket == 0x22 || currentByteFromPacket == 0x23 || currentByteFromPacket == 0x24 || currentByteFromPacket == 0x25)
+        // Fade channel/all
+        else if(currentByteFromPacket == 0x20 || currentByteFromPacket == 0x21 || currentByteFromPacket == 0x22 || currentByteFromPacket == 0x23 || currentByteFromPacket == 0x24 || currentByteFromPacket == 0x25 || currentByteFromPacket == 0x30 || currentByteFromPacket == 0x31 || currentByteFromPacket == 0x32 || currentByteFromPacket == 0x33 || currentByteFromPacket == 0x34 || currentByteFromPacket == 0x35)
         {
             byte commandID = currentByteFromPacket;
             byte channelNumber;
@@ -314,21 +304,21 @@ void processPacket()
             channelNumber = currentByteFromPacket;
             
             // Fade up
-            if(commandID == 0x20 || commandID == 0x21)
+            if(commandID == 0x20 || commandID == 0x21 || commandID == 0x30 || commandID == 0x31)
             {
                 // Get the end brightness
                 startBrightness = 0;
                 endBrightness = maxBrightness;
             }
             // Fade down
-            if(commandID == 0x22 || commandID == 0x23)
+            if(commandID == 0x22 || commandID == 0x23 || commandID == 0x32 || commandID == 0x33)
             {
                 // Get the end brightness
                 startBrightness = maxBrightness;
                 endBrightness = 0;
             }
             // Fade from x to y
-            if(commandID == 0x24 || commandID == 0x25)
+            if(commandID == 0x24 || commandID == 0x25 || commandID == 0x34 || commandID == 0x35)
             {
                 // Get the startBrightness
                 readNextByteInPacket();
@@ -355,14 +345,14 @@ void processPacket()
                 }
             }
             
-            // Get the fade time in hundreths
+            // Fade channel in hundreths
             if(commandID == 0x20 || commandID == 0x22 || commandID == 0x24)
             {
                 readNextByteInPacket();
                 fadeTimeInHundrethsOfSeconds = currentByteFromPacket;
                 fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, startBrightness, endBrightness, fadeTimeInHundrethsOfSeconds * 10);
             }
-            // Get the fade time in tenths
+            // Fade channel in tenths
             else if(commandID == 0x21 || commandID == 0x23 || commandID == 0x25)
             {
                 readNextByteInPacket();
@@ -370,60 +360,8 @@ void processPacket()
                 // Set the fade
                 fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(channelNumber, startBrightness, endBrightness, fadeTimeInTenthsOfSeconds * 100);
             }
-        }
-        // Fade all
-        else if(currentByteFromPacket == 0x30 || currentByteFromPacket == 0x31 || currentByteFromPacket == 0x32 || currentByteFromPacket == 0x33 || currentByteFromPacket == 0x34 || currentByteFromPacket == 0x35)
-        {
-            byte commandID = currentByteFromPacket;
-            byte startBrightness;
-            byte endBrightness;
-            byte fadeTimeInHundrethsOfSeconds;
-            byte fadeTimeInTenthsOfSeconds;
-            
-            // Fade up
-            if(commandID == 0x30 || commandID == 0x31)
-            {
-                // Get the end brightness
-                startBrightness = 0;
-                endBrightness = maxBrightness;
-            }
-            // Fade down
-            if(commandID == 0x32 || commandID == 0x33)
-            {
-                // Get the end brightness
-                startBrightness = maxBrightness;
-                endBrightness = 0;
-            }
-            // Fade from x to y
-            if(commandID == 0x34 || commandID == 0x35)
-            {
-                // Get the startBrightness
-                readNextByteInPacket();
-                startBrightness = currentByteFromPacket;
-                if(startBrightness > maxBrightness)
-                {
-                    startBrightness = maxBrightness;
-                }
-                else if(startBrightness < 0)
-                {
-                    startBrightness = 0;
-                }
-                
-                // Get the endBrightness
-                readNextByteInPacket();
-                endBrightness = currentByteFromPacket;
-                if(endBrightness > maxBrightness)
-                {
-                    endBrightness = maxBrightness;
-                }
-                else if(endBrightness < 0)
-                {
-                    endBrightness = 0;
-                }
-            }
-            
-            // Get the fade time in hundreths
-            if(commandID == 0x30 || commandID == 0x32 || commandID == 0x34)
+            // Fade all hundredths
+            else if(commandID == 0x30 || commandID == 0x32 || commandID == 0x34)
             {
                 readNextByteInPacket();
                 fadeTimeInHundrethsOfSeconds = currentByteFromPacket;
@@ -433,7 +371,7 @@ void processPacket()
                     fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(i, startBrightness, endBrightness, fadeTimeInHundrethsOfSeconds * 10);
                 }
             }
-            // Get the fade time in hundreths
+            // Fade all tenths
             else if(commandID == 0x31 || commandID == 0x33 || commandID == 0x35)
             {
                 readNextByteInPacket();
@@ -488,7 +426,6 @@ void turnOffChannel(byte channelNumber)
     setBrightnessForChannel(channelNumber, 0);
 }
 
-// This legacy support is bad because an 0xFF could be sent which is an end of packet so this will never get called
 void turn8ChannelsOnOffStartingAtChannelNumber(byte startingChannelNumber)
 {
     byte channelStates = currentByteFromPacket;

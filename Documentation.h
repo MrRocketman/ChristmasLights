@@ -6,8 +6,13 @@
 //
 // 0x01     0x04        0x05(0b00000101 = channel 0, 2 on; All others off) 0x01(channel 8 on) ....  0xFF        N Channel state
 //
+// 0x01     0x05        0x10(Ch #) 0xEE(Time - 0.01 sec per bit)                                    0xFF        Channel on for time (hundreths)
+// 0x01     0x06        0x10(Ch #) 0xEE(Time - 0.1 sec per bit)                                     0xFF        Channel on for time (tenths)
+//
 // 0x01     0x10        0x10(Ch #) 0x5F(Dim)                                                        0xFF        Set Brightness for 1 channel
 // 0x01     0x11        0x5F(Dim)                                                                   0xFF        Set Brightness for all channels
+// 0x01     0x12        0x10(Ch #) 0x5F(Dim) 0xEE(Time - 0.01 sec per bit)                          0xFF        Set Brightness for channel for time (hundreths)
+// 0x01     0x13        0x10(Ch #) 0x5F(Dim) 0xEE(Time - 0.1 sec per bit)                           0xFF        Set Brightness for channel for time (tenths)
 //
 // 0x01     0x15                                                                                    0xFF        All channels on
 // 0x01     0x16                                                                                    0xFF        All channels off
