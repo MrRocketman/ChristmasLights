@@ -332,8 +332,11 @@ void processPacket()
             byte fadeTimeInHundrethsOfSeconds;
             byte fadeTimeInTenthsOfSeconds;
             
-            // Get the channel number
-            channelNumber = readNextByteInPacket();
+            // Get the channel number for single channel commands
+            if(commandID == 0x20 || commandID == 0x21 || commandID == 0x22 || commandID == 0x23 || commandID == 0x24 || commandID == 0x25)
+            {
+                channelNumber = readNextByteInPacket();
+            }
             
             // Fade up
             if(commandID == 0x20 || commandID == 0x21 || commandID == 0x30 || commandID == 0x31)
