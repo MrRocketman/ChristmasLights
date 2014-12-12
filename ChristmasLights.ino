@@ -266,7 +266,12 @@ void processPacket()
                 startingIndex ++;
             }
         }
-        else if(currentByteFromPacket == 0x11) // Command 0x06 (All brightness)
+        else if(currentByteFromPacket == 0x10) // Command 0x10 (1 brightness)
+        {
+            byte channelNumber = readNextByteInPacket();
+            setBrightnessForChannel(channelNumber, readNextByteInPacket());
+        }
+        else if(currentByteFromPacket == 0x11) // Command 0x11 (All brightness)
         {
             readNextByteInPacket();
             
