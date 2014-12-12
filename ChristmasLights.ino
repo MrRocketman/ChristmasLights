@@ -10,7 +10,8 @@
 //#define TESTING // Uncomment to enable all channel testing
 
 // Board specific variables! Change these per board!
-const byte boardID = 0x04;
+const byte boardID = 0x07;
+byte numberOfShiftRegisters = 4;
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 // Don't change any variables below here unless you really, really know what you are doing //
@@ -70,7 +71,6 @@ const uint8_t dataBit = digital_pin_to_bit_PGM_ct[MOSI];
 
 // Shift Register
 byte maxBrightness = 127;
-byte numberOfShiftRegisters = 0;
 byte numberOfChannels = 0;
 byte *pwmValues = 0;
 volatile byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
@@ -168,6 +168,8 @@ void setup()
     
     // Setup the zero cross interrupt which uses zeroCrossPin (zeroCrossPin can't be changed though)
     attachInterrupt(0, zeroCrossDetect, FALLING);
+    
+    initializeWithewShiftRegisterCount();
     
 #ifdef SERIAL_PRINTING
     Serial.print("LD:");
@@ -557,7 +559,7 @@ void detectShiftRegisters()
         if(shiftRegisterDetectValueIsNearValueWithRange(0))
         {
             numberOfShiftRegisters = 0;
-            //Serial.println("NO BOARDS DETECTED! CHECK THE JUMPER!");
+            Serial.println("NO BOARDS DETECTED! CHECK THE JUMPER!");
         }
         else if(shiftRegisterDetectValueIsNearValueWithRange(1024 / 2))
         {
@@ -592,61 +594,14 @@ void detectShiftRegisters()
             numberOfShiftRegisters = 8;
         }
         
-        // Disable interrupt
-        cli();
-        // Update the number of channels
-        numberOfChannels = numberOfShiftRegisters * 8;
-        
-        // Check if new amount will not result in deadlock
-        if(isInterruptLoadAcceptable())
-        {
-            // Malloc pwmValues array
-            pwmValues = (byte *)malloc(numberOfChannels * sizeof(byte));
-            // Initialize pwmValues array to 0
-            memset(pwmValues, 0, numberOfChannels * sizeof(byte));
-            
-            // Malloc finalPWMValues array
-            finalPWMValues = (byte *)malloc(numberOfChannels * sizeof(byte));
-            // Initialize pwmValues array to 0
-            memset(finalPWMValues, 0, numberOfChannels * sizeof(byte));
-            
-            // Malloc temporaryPWMValues array
-            temporaryPWMValues = (float *)malloc(numberOfChannels * sizeof(float));
-            // Initialize temporaryPWMValues array to 0
-            memset(temporaryPWMValues, 0, numberOfChannels * sizeof(float));
-            
-            // Malloc brightnessChangePerDimmingCycle array
-            brightnessChangePerDimmingCycle = (float *)malloc(numberOfChannels * sizeof(float));
-            // Initialize brightnessChangePerDimmingCycle array to 0
-            memset(brightnessChangePerDimmingCycle, 0, numberOfChannels * sizeof(float));
-            
-            // Malloc dimmingUpdatesCount array
-            dimmingUpdatesCount = (unsigned short *)malloc(numberOfChannels * sizeof(unsigned short));
-            // Initialize dimmingUpdatesCount array to 0
-            memset(dimmingUpdatesCount, 0, numberOfChannels * sizeof(unsigned short));
-            
-#ifdef TESTING
-            // Malloc dimmingDirection array
-            dimmingDirection = (byte *)malloc(numberOfChannels * sizeof(byte));
-            // Initialize dimmingDirection array to 0
-            memset(dimmingDirection, 0, numberOfChannels * sizeof(byte));
+#ifdef DEBUG
+        Serial.print("bd:");
+        Serial.println(shiftRegisterDetectValue);
+        Serial.print("boards:");
+        Serial.println(numberOfShiftRegisters);
 #endif
-            
-            // Re-enable interrupt
-            sei();
-        }
-        else
-        {
-            // New value would result in deadlock, keep old values and print an error message
-            Serial.println(F("Number of shift registers not changed, because load would become too high"));
-            // Re-enable interrupt
-            sei();
-        }
         
-        #ifdef DEBUG
-            Serial.print("bd:");
-            Serial.println(shiftRegisterDetectValue);
-        #endif
+        initializeWithewShiftRegisterCount();
         
 #ifdef DEBUG
         // Print Shift PWM stuff
@@ -676,6 +631,60 @@ byte shiftRegisterDetectValueIsNearValueWithRange(int compareValue, int range)
     }
     
     return 0;
+}
+
+void initializeWithewShiftRegisterCount()
+{
+    // Disable interrupt
+    cli();
+    // Update the number of channels
+    numberOfChannels = numberOfShiftRegisters * 8;
+    
+    // Check if new amount will not result in deadlock
+    if(isInterruptLoadAcceptable())
+    {
+        // Malloc pwmValues array
+        pwmValues = (byte *)malloc(numberOfChannels * sizeof(byte));
+        // Initialize pwmValues array to 0
+        memset(pwmValues, 0, numberOfChannels * sizeof(byte));
+        
+        // Malloc finalPWMValues array
+        finalPWMValues = (byte *)malloc(numberOfChannels * sizeof(byte));
+        // Initialize pwmValues array to 0
+        memset(finalPWMValues, 0, numberOfChannels * sizeof(byte));
+        
+        // Malloc temporaryPWMValues array
+        temporaryPWMValues = (float *)malloc(numberOfChannels * sizeof(float));
+        // Initialize temporaryPWMValues array to 0
+        memset(temporaryPWMValues, 0, numberOfChannels * sizeof(float));
+        
+        // Malloc brightnessChangePerDimmingCycle array
+        brightnessChangePerDimmingCycle = (float *)malloc(numberOfChannels * sizeof(float));
+        // Initialize brightnessChangePerDimmingCycle array to 0
+        memset(brightnessChangePerDimmingCycle, 0, numberOfChannels * sizeof(float));
+        
+        // Malloc dimmingUpdatesCount array
+        dimmingUpdatesCount = (unsigned short *)malloc(numberOfChannels * sizeof(unsigned short));
+        // Initialize dimmingUpdatesCount array to 0
+        memset(dimmingUpdatesCount, 0, numberOfChannels * sizeof(unsigned short));
+        
+#ifdef TESTING
+        // Malloc dimmingDirection array
+        dimmingDirection = (byte *)malloc(numberOfChannels * sizeof(byte));
+        // Initialize dimmingDirection array to 0
+        memset(dimmingDirection, 0, numberOfChannels * sizeof(byte));
+#endif
+        
+        // Re-enable interrupt
+        sei();
+    }
+    else
+    {
+        // New value would result in deadlock, keep old values and print an error message
+        Serial.println(F("Number of shift registers not changed, because load would become too high"));
+        // Re-enable interrupt
+        sei();
+    }
 }
 
 #pragma mark - Zero Cross
@@ -909,12 +918,12 @@ void dimmingTest()
         {
             if(dimmingDirection[i] == 1)
             {
-                fadeChannelNumberToBrightnessWithMillisecondsDuration(i, 0, 500 + i * 100);
+                fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(i, maxBrightness, 0, 500 + i * 100);
                 dimmingDirection[i] = 0;
             }
             else
             {
-                fadeChannelNumberToBrightnessWithMillisecondsDuration(i, maxBrightness, 500 + i * 100);
+                fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(i, 0, maxBrightness, 500 + i * 100);
                 dimmingDirection[i] = 1;
             }
         }
