@@ -713,6 +713,10 @@ void handleZeroCross()
     {
         // Update he frequency
         pwmFrequency = 1.0 / (averageZeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS);
+#if DEBUG
+        Serial.print("Frequency Change:");
+        Serial.println(pwmFrequency);
+#endif
         // Update the shift register interrupt timer
         OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
         // Also update what we expect the zero cross time difference
