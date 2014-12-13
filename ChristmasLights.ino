@@ -10,8 +10,8 @@
 //#define TESTING // Uncomment to enable all channel testing
 
 // Board specific variables! Change these per board!
-const byte boardID = 0x05;
-byte numberOfShiftRegisters = 2;
+const byte boardID = 0x01;
+byte numberOfShiftRegisters = 4;
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 // Don't change any variables below here unless you really, really know what you are doing //
@@ -708,15 +708,16 @@ void handleZeroCross()
     averageZeroCrossTimeDifference -= averageZeroCrossTimeDifference / pwmFrequency;
     averageZeroCrossTimeDifference += zeroCrossTimeDifference / pwmFrequency;
     
+#ifdef DEBUG
+    Serial.print("zercross:");
+    Serial.println(zeroCrossTimeDifference);
+#endif
+    
     // Only update the pwmFrequency if it has changed by ~1 hz
     if(averageZeroCrossTimeDifference > nominalZeroCrossTimeDifference + acceptableZeroCrossDeviationInMicroseconds || averageZeroCrossTimeDifference < nominalZeroCrossTimeDifference - acceptableZeroCrossDeviationInMicroseconds)
     {
         // Update he frequency
         pwmFrequency = 1.0 / (averageZeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS);
-#if DEBUG
-        Serial.print("Frequency Change:");
-        Serial.println(pwmFrequency);
-#endif
         // Update the shift register interrupt timer
         OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
         // Also update what we expect the zero cross time difference
