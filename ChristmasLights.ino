@@ -10,8 +10,8 @@
 //#define TESTING // Uncomment to enable all channel testing
 
 // Board specific variables! Change these per board!
-const byte boardID = 0x07;
-byte numberOfShiftRegisters = 4;
+const byte boardID = 0x05;
+byte numberOfShiftRegisters = 2;
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 // Don't change any variables below here unless you really, really know what you are doing //
@@ -43,7 +43,7 @@ float pwmFrequency = 120;
 unsigned long int previousZeroCrossTime = 0; // Timestamp in micros() of the latest zero crossing interrupt
 unsigned long int currentZeroCrossTime = 0; // Timestamp in micros() of the previous zero crossing interrupt
 unsigned long nominalZeroCrossTimeDifference = (unsigned long)(1000000 / pwmFrequency); // This is the default expected time between zero crosses
-byte acceptableZeroCrossDeviationInMicroseconds = 100; // How much the zero crosses can change by before taking action
+int acceptableZeroCrossDeviationInMicroseconds = 400; // How much the zero crosses can change by before taking action
 unsigned long int zeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
 unsigned long int averageZeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
 byte zeroCrossPin = 2;
