@@ -42,11 +42,15 @@ asm volatile ("ror %0" : "+r" (sendbyte) : "r" (sendbyte) : ); 	\
 float pwmFrequency = 120;
 unsigned long int previousZeroCrossTime = 0; // Timestamp in micros() of the latest zero crossing interrupt
 unsigned long int currentZeroCrossTime = 0; // Timestamp in micros() of the previous zero crossing interrupt
-unsigned long nominalZeroCrossTimeDifference = (unsigned long)(1000000 / pwmFrequency); // This is the default expected time between zero crosses
-int acceptableZeroCrossDeviationInMicroseconds = 400; // How much the zero crosses can change by before taking action
+unsigned long nominalZeroCrossTimeDifference = 8230;//(unsigned long)(1000000 / pwmFrequency); // This is the default expected time between zero crosses
+byte acceptableZeroCrossDeviationInMicroseconds = 10; // How much the zero crosses can change by before taking action
+int maxZeroCrossDeviationInMicroseconds = 100; // How much the zero crosses can change by before taking action
 unsigned long int zeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
 unsigned long int averageZeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
 byte zeroCrossPin = 2;
+#ifdef SERIAL_PRINTING
+    byte zeroCrossCounter = 0;
+#endif
 
 // Shift Register Detect Variables
 byte shiftRegisterDetectPin = A5;
@@ -506,7 +510,7 @@ void channelBrightnessWithMillisecondsDuration(byte channelNumber, byte brightne
 #ifdef DEBUG
     Serial.print("ch:");
     Serial.print(channelNumber);
-    Serial.print(" p:");
+    Serial.print(" b:");
     Serial.println(brightnessChangePerDimmingCycle[channelNumber]);
 #endif
 }
@@ -527,7 +531,7 @@ void fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(byte ch
 #ifdef DEBUG
     Serial.print("ch:");
     Serial.print(channelNumber);
-    Serial.print(" p:");
+    Serial.print(" f:");
     Serial.println(brightnessChangePerDimmingCycle[channelNumber]);
 #endif
 }
@@ -708,13 +712,18 @@ void handleZeroCross()
     averageZeroCrossTimeDifference -= averageZeroCrossTimeDifference / pwmFrequency;
     averageZeroCrossTimeDifference += zeroCrossTimeDifference / pwmFrequency;
     
-#ifdef DEBUG
-    Serial.print("zercross:");
-    Serial.println(zeroCrossTimeDifference);
+#ifdef SERIAL_PRINTING
+    zeroCrossCounter ++;
+    if(zeroCrossCounter > pwmFrequency)
+    {
+        Serial.print("averageZeroCross:");
+        Serial.println(averageZeroCrossTimeDifference);
+        zeroCrossCounter = 0;
+    }
 #endif
     
-    // Only update the pwmFrequency if it has changed by ~1 hz
-    if(averageZeroCrossTimeDifference > nominalZeroCrossTimeDifference + acceptableZeroCrossDeviationInMicroseconds || averageZeroCrossTimeDifference < nominalZeroCrossTimeDifference - acceptableZeroCrossDeviationInMicroseconds)
+    // Only update the pwmFrequency if it's within ~1hz (software fix for zeroCross Signal dropout)
+    if((averageZeroCrossTimeDifference > nominalZeroCrossTimeDifference + acceptableZeroCrossDeviationInMicroseconds && averageZeroCrossTimeDifference <= nominalZeroCrossTimeDifference + acceptableZeroCrossDeviationInMicroseconds + maxZeroCrossDeviationInMicroseconds) || (averageZeroCrossTimeDifference < nominalZeroCrossTimeDifference - acceptableZeroCrossDeviationInMicroseconds && averageZeroCrossTimeDifference >= nominalZeroCrossTimeDifference - acceptableZeroCrossDeviationInMicroseconds - maxZeroCrossDeviationInMicroseconds))
     {
         // Update he frequency
         pwmFrequency = 1.0 / (averageZeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS);
@@ -722,6 +731,11 @@ void handleZeroCross()
         OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
         // Also update what we expect the zero cross time difference
         nominalZeroCrossTimeDifference = averageZeroCrossTimeDifference;
+        
+#ifdef SERIAL_PRINTING
+        Serial.print("frequencyChange:");
+        Serial.println(pwmFrequency);
+#endif
     }
     
     // Keep the shift register timer in phase with the zero cross
