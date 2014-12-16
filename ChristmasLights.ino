@@ -930,6 +930,8 @@ void dimmingUpdate()
             temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
             pwmValues[i] = temporaryPWMValues[i];
             dimmingUpdatesCount[i] --;
+            
+            // Fade is complete. Turn off now
             if(dimmingUpdatesCount[i] == 0)
             {
                 pwmValues[i] = 0;
