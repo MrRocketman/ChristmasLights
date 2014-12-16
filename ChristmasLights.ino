@@ -9,9 +9,10 @@
 //#define DEBUG // Outputs extra logs to Serial
 //#define TESTING // Uncomment to enable all channel testing
 
-// Board specific variables! Change these per board!
-const byte boardID = 0x05;
-byte numberOfShiftRegisters = 2;
+// Board specific variables! Change these per board!,
+const byte boardID = 0x04;
+byte numberOfShiftRegisters = 3;
+byte minBrightness = 0; // compensates for no light at < 20% dim. 14 for AC, 0 for DC
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 // Don't change any variables below here unless you really, really know what you are doing //
@@ -42,10 +43,7 @@ asm volatile ("ror %0" : "+r" (sendbyte) : "r" (sendbyte) : ); 	\
 float pwmFrequency = 120;
 unsigned long int previousZeroCrossTime = 0; // Timestamp in micros() of the latest zero crossing interrupt
 unsigned long int currentZeroCrossTime = 0; // Timestamp in micros() of the previous zero crossing interrupt
-unsigned long nominalZeroCrossTimeDifference = (unsigned long)(1000000 / pwmFrequency); // This is the default expected time between zero crosses
-int acceptableZeroCrossDeviationInMicroseconds = 400; // How much the zero crosses can change by before taking action
-unsigned long int zeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
-unsigned long int averageZeroCrossTimeDifference =  nominalZeroCrossTimeDifference; // The calculated micros() between the last two zero crossings
+unsigned long int zeroCrossTimeDifference =  (unsigned long)(1000000 / pwmFrequency); // The calculated micros() between the last two zero crossings
 byte zeroCrossPin = 2;
 
 // Shift Register Detect Variables
@@ -477,6 +475,10 @@ void setBrightnessForChannel(byte channelNumber, byte brightness)
     // Set the brightness if the channel is valid
     if(isChannelNumberValid(channelNumber))
     {
+      if(brightness < minBrightness)
+      {
+        brightness = minBrightness;
+      }
         pwmValues[channelNumber] = brightness;
         // Cancel a fade if it was fading
         dimmingUpdatesCount[channelNumber] = 0;
@@ -495,6 +497,10 @@ void channelBrightnessWithMillisecondsDuration(byte channelNumber, byte brightne
     // Set the brightnessChangePerDimmingCycle if the channel is valid
     if(isChannelNumberValid(channelNumber))
     {
+      if(brightness < minBrightness)
+      {
+        brightness = minBrightness;
+      }
         pwmValues[channelNumber] = brightness;
         
         dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 1;
@@ -516,6 +522,14 @@ void fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(byte ch
     // Set the brightnessChangePerDimmingCycle if the channel is valid
     if(isChannelNumberValid(channelNumber))
     {
+      if(startBrightness < minBrightness)
+      {
+        startBrightness = minBrightness;
+      }
+      if(endBrightness < minBrightness)
+      {
+        endBrightness = minBrightness;
+      }
         pwmValues[channelNumber] = startBrightness;
         
         dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 1;
@@ -705,19 +719,15 @@ void handleZeroCross()
     previousZeroCrossTime = currentZeroCrossTime;
     currentZeroCrossTime = micros();
     zeroCrossTimeDifference = currentZeroCrossTime - previousZeroCrossTime;
-    averageZeroCrossTimeDifference -= averageZeroCrossTimeDifference / pwmFrequency;
-    averageZeroCrossTimeDifference += zeroCrossTimeDifference / pwmFrequency;
     
-    // Only update the pwmFrequency if it has changed by ~1 hz
-    if(averageZeroCrossTimeDifference > nominalZeroCrossTimeDifference + acceptableZeroCrossDeviationInMicroseconds || averageZeroCrossTimeDifference < nominalZeroCrossTimeDifference - acceptableZeroCrossDeviationInMicroseconds)
+    // Update he frequency
+    pwmFrequency = 1.0 / (zeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS);
+    if(pwmFrequency > 130)
     {
-        // Update he frequency
-        pwmFrequency = 1.0 / (averageZeroCrossTimeDifference * MICROSECONDS_TO_MILLISECONDS * MILLISECONDS_TO_SECONDS);
-        // Update the shift register interrupt timer
-        OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
-        // Also update what we expect the zero cross time difference
-        nominalZeroCrossTimeDifference = averageZeroCrossTimeDifference;
+        pwmFrequency = 120.0;
     }
+    // Update the shift register interrupt timer
+    OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
     
     // Keep the shift register timer in phase with the zero cross
     TCNT1 = 0;
