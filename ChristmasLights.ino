@@ -5,14 +5,14 @@
 #pragma mark - Variable Declarations
 
 // Debugging defines
-#define SERIAL_PRINTING // This disables most all serial printing
+#define SERIAL_PRINTING // Outputs critical data
 //#define DEBUG // Outputs extra logs to Serial
 //#define TESTING // Uncomment to enable all channel testing
 
 // Board specific variables! Change these per board!,
 const byte boardID = 0x04;
 byte numberOfShiftRegisters = 3;
-byte minBrightness = 0; // compensates for no light at < 20% dim. 14 for AC, 0 for DC
+#define AC_LIGHTS 1 // Set to 0 for DC lights
 
 /////////////////////////////////////////////////////////////////////////////////////////////
 // Don't change any variables below here unless you really, really know what you are doing //
@@ -69,6 +69,7 @@ const uint8_t dataBit = digital_pin_to_bit_PGM_ct[MOSI];
 
 // Shift Register
 byte maxBrightness = 127;
+byte minBrightness = 0; // compensates for no light at < 20% dim. 14 for AC, 0 for DC
 byte numberOfChannels = 0;
 byte *pwmValues = 0;
 volatile byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
@@ -80,7 +81,7 @@ unsigned short *dimmingUpdatesCount = 0;
 byte *finalPWMValues = 0;
 volatile byte updateDimming = 0;
 #ifdef TESTING
-    byte *dimmingDirection; // For testing only
+byte *dimmingDirection; // For testing only
 #endif
 
 #pragma mark - Method Declarations
@@ -140,6 +141,12 @@ void setup()
     digitalWrite(MOSI, LOW);
     digitalWrite(SS, HIGH);
     
+    // Adjust the minimumBrightness for AC lights
+    if(AC_LIGHTS)
+    {
+        minBrightness = 14;
+    }
+    
     // Serial setup
     Serial.begin(57600); // Xbee doesn't like to run any faster than 57600 for sustained throughput!
     
@@ -186,7 +193,7 @@ void loop()
     }
     
     // Handle XBee data
-	if(Serial.available())
+    if(Serial.available())
     {
         // Read in a byte and store it
         packetBuffer[packetBufferLength] = Serial.read();
@@ -436,11 +443,11 @@ byte readNextByteInPacket()
 
 void clearPacketBuffer()
 {
-	packetBufferLength = 0;
+    packetBufferLength = 0;
     currentByteIndex = 0;
-	
+    
     // Set our packetBuffer to all 0's (nils)
-	memset(packetBuffer, 0, MAX_PACKET_SIZE * sizeof(byte));
+    memset(packetBuffer, 0, MAX_PACKET_SIZE * sizeof(byte));
 }
 
 #pragma mark - Channel Changes
@@ -475,10 +482,15 @@ void setBrightnessForChannel(byte channelNumber, byte brightness)
     // Set the brightness if the channel is valid
     if(isChannelNumberValid(channelNumber))
     {
-      if(brightness < minBrightness)
-      {
-        brightness = minBrightness;
-      }
+        // Clamp to min and max brightness
+        if(brightness < minBrightness)
+        {
+            brightness = minBrightness;
+        }
+        else if(brightness > maxBrightness)
+        {
+            brightness = maxBrightness;
+        }
         pwmValues[channelNumber] = brightness;
         // Cancel a fade if it was fading
         dimmingUpdatesCount[channelNumber] = 0;
@@ -497,10 +509,15 @@ void channelBrightnessWithMillisecondsDuration(byte channelNumber, byte brightne
     // Set the brightnessChangePerDimmingCycle if the channel is valid
     if(isChannelNumberValid(channelNumber))
     {
-      if(brightness < minBrightness)
-      {
-        brightness = minBrightness;
-      }
+        // Clamp to min and max brightness
+        if(brightness < minBrightness)
+        {
+            brightness = minBrightness;
+        }
+        else if(brightness > maxBrightness)
+        {
+            brightness = maxBrightness;
+        }
         pwmValues[channelNumber] = brightness;
         
         dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 1;
@@ -522,14 +539,22 @@ void fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(byte ch
     // Set the brightnessChangePerDimmingCycle if the channel is valid
     if(isChannelNumberValid(channelNumber))
     {
-      if(startBrightness < minBrightness)
-      {
-        startBrightness = minBrightness;
-      }
-      if(endBrightness < minBrightness)
-      {
-        endBrightness = minBrightness;
-      }
+        if(startBrightness < minBrightness)
+        {
+            startBrightness = minBrightness;
+        }
+        else if(startBrightness > maxBrightness)
+        {
+            startBrightness = maxBrightness;
+        }
+        if(endBrightness < minBrightness)
+        {
+            endBrightness = minBrightness;
+        }
+        else if(endBrightness > maxBrightness)
+        {
+            endBrightness = maxBrightness;
+        }
         pwmValues[channelNumber] = startBrightness;
         
         dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 1;
