@@ -78,7 +78,6 @@ volatile byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 float *brightnessChangePerDimmingCycle = 0;
 float *temporaryPWMValues = 0;
 unsigned short *dimmingUpdatesCount = 0;
-byte *finalPWMValues = 0;
 volatile byte updateDimming = 0;
 #ifdef TESTING
 byte *dimmingDirection; // For testing only
@@ -523,7 +522,6 @@ void channelBrightnessWithMillisecondsDuration(byte channelNumber, byte brightne
         dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 1;
         brightnessChangePerDimmingCycle[channelNumber] = 0;
         temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
-        finalPWMValues[channelNumber] = 0;
     }
     
 #ifdef DEBUG
@@ -560,7 +558,6 @@ void fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(byte ch
         dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 1;
         brightnessChangePerDimmingCycle[channelNumber] = (float)(endBrightness - startBrightness) / dimmingUpdatesCount[channelNumber];
         temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
-        finalPWMValues[channelNumber] = endBrightness;
     }
     
 #ifdef DEBUG
@@ -689,11 +686,6 @@ void initializeWithewShiftRegisterCount()
         pwmValues = (byte *)malloc(numberOfChannels * sizeof(byte));
         // Initialize pwmValues array to 0
         memset(pwmValues, 0, numberOfChannels * sizeof(byte));
-        
-        // Malloc finalPWMValues array
-        finalPWMValues = (byte *)malloc(numberOfChannels * sizeof(byte));
-        // Initialize pwmValues array to 0
-        memset(finalPWMValues, 0, numberOfChannels * sizeof(byte));
         
         // Malloc temporaryPWMValues array
         temporaryPWMValues = (float *)malloc(numberOfChannels * sizeof(float));
@@ -940,7 +932,7 @@ void dimmingUpdate()
             dimmingUpdatesCount[i] --;
             if(dimmingUpdatesCount[i] == 0)
             {
-                pwmValues[i] = finalPWMValues[i];
+                pwmValues[i] = 0;
             }
         }
     }
