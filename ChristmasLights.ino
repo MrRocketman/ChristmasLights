@@ -519,7 +519,7 @@ void channelBrightnessWithMillisecondsDuration(byte channelNumber, byte brightne
         }
         pwmValues[channelNumber] = brightness;
         
-        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 1;
+        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 11; // 11 means fade up has 11/120 seconds to get another command before it shuts off
         brightnessChangePerDimmingCycle[channelNumber] = 0;
         temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
     }
@@ -555,7 +555,7 @@ void fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(byte ch
         }
         pwmValues[channelNumber] = startBrightness;
         
-        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 1;
+        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 11; // 11 means fade up has 11/120 seconds to get another command before it shuts off
         brightnessChangePerDimmingCycle[channelNumber] = (float)(endBrightness - startBrightness) / dimmingUpdatesCount[channelNumber];
         temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
     }
@@ -931,8 +931,11 @@ void dimmingUpdate()
         // Update a channel if it is still dimming
         if(dimmingUpdatesCount[i] > 0)
         {
-            temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
-            pwmValues[i] = temporaryPWMValues[i];
+            if(dimmingUpdatesCount[i] > 10)
+            {
+                temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
+                pwmValues[i] = temporaryPWMValues[i];
+            }
             dimmingUpdatesCount[i] --;
             
             // Fade is complete. Turn off now
