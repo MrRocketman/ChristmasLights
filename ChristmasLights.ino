@@ -10,8 +10,8 @@
 //#define TESTING // Uncomment to enable all channel testing
 
 // Board specific variables! Change these per board!,
-const byte boardID = 0x04;
-byte numberOfShiftRegisters = 3;
+const byte boardID = 0x06;
+byte numberOfShiftRegisters = 2;
 #define AC_LIGHTS 1 // Set to 0 for DC lights
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -519,7 +519,7 @@ void channelBrightnessWithMillisecondsDuration(byte channelNumber, byte brightne
         }
         pwmValues[channelNumber] = brightness;
         
-        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 11; // 11 means fade up has 11/120 seconds to get another command before it shuts off
+        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 10; // 10 means fade up has 11/120 seconds to get another command before it shuts off
         brightnessChangePerDimmingCycle[channelNumber] = 0;
         temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
     }
@@ -555,8 +555,8 @@ void fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(byte ch
         }
         pwmValues[channelNumber] = startBrightness;
         
-        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 11; // 11 means fade up has 11/120 seconds to get another command before it shuts off
-        brightnessChangePerDimmingCycle[channelNumber] = (float)(endBrightness - startBrightness) / dimmingUpdatesCount[channelNumber];
+        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 10; // 11 means fade up has 11/120 seconds to get another command before it shuts off
+        brightnessChangePerDimmingCycle[channelNumber] = (float)(endBrightness - startBrightness) / (dimmingUpdatesCount[channelNumber] - 10);
         temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
     }
     
@@ -931,7 +931,7 @@ void dimmingUpdate()
         // Update a channel if it is still dimming
         if(dimmingUpdatesCount[i] > 0)
         {
-            if(dimmingUpdatesCount[i] > 10)
+            if(dimmingUpdatesCount[i] >= 10)
             {
                 temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
                 pwmValues[i] = temporaryPWMValues[i];
