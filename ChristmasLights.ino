@@ -77,7 +77,7 @@ volatile byte shiftRegisterCurrentBrightnessIndex = maxBrightness;
 // Dimming variables
 float *brightnessChangePerDimmingCycle = 0;
 float *temporaryPWMValues = 0;
-int *dimmingUpdatesCount = 0;
+unsigned short *dimmingUpdatesCount = 0;
 volatile byte updateDimming = 0;
 #ifdef TESTING
 byte *dimmingDirection; // For testing only
@@ -698,9 +698,9 @@ void initializeWithewShiftRegisterCount()
         memset(brightnessChangePerDimmingCycle, 0, numberOfChannels * sizeof(float));
         
         // Malloc dimmingUpdatesCount array
-        dimmingUpdatesCount = (int *)malloc(numberOfChannels * sizeof(int));
+        dimmingUpdatesCount = (unsigned short *)malloc(numberOfChannels * sizeof(unsigned short));
         // Initialize dimmingUpdatesCount array to 0
-        memset(dimmingUpdatesCount, 0, numberOfChannels * sizeof(int));
+        memset(dimmingUpdatesCount, 0, numberOfChannels * sizeof(unsigned short));
         
 #ifdef TESTING
         // Malloc dimmingDirection array
@@ -929,18 +929,20 @@ void dimmingUpdate()
     for(byte i = 0; i < numberOfChannels; i ++)
     {
         // Update a channel if it is still dimming
-        if(dimmingUpdatesCount[i] > 0)
+        if(dimmingUpdatesCount[i] >= 0)
         {
-            temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
-            pwmValues[i] = temporaryPWMValues[i];
+            // Fade is complete. Turn off now
+            if(dimmingUpdatesCount[i] == 0)
+            {
+                pwmValues[i] = 0;
+            }
+            else
+            {
+                temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
+                pwmValues[i] = temporaryPWMValues[i];
+                dimmingUpdatesCount[i] --;
+            }
         }
-        // Fade is complete. Turn off now. Add a little fudge factor so dim up works well
-        else if(dimmingUpdatesCount[i] == -10)
-        {
-            pwmValues[i] = 0;
-        }
-        
-        dimmingUpdatesCount[i] --;
     }
 }
 
