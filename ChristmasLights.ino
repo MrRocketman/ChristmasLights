@@ -925,18 +925,16 @@ void dimmingUpdate()
     for(byte i = 0; i < numberOfChannels; i ++)
     {
         // Update a channel if it is still dimming
-        if(dimmingUpdatesCount[i] >= 0)
+        if(dimmingUpdatesCount[i] > 0)
         {
+            temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
+            pwmValues[i] = temporaryPWMValues[i];
+            dimmingUpdatesCount[i] --;
+            
             // Fade is complete. Turn off now
             if(dimmingUpdatesCount[i] == 0)
             {
                 pwmValues[i] = 0;
-            }
-            else
-            {
-                temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
-                pwmValues[i] = temporaryPWMValues[i];
-                dimmingUpdatesCount[i] --;
             }
         }
     }
