@@ -743,10 +743,6 @@ void handleZeroCross()
     {
         pwmFrequency = 120.0;
     }
-    else if(pwmFrequency < 90)
-    {
-        pwmFrequency = 120.0;
-    }
     // Update the shift register interrupt timer
     OCR1A = round((float)F_CPU / (pwmFrequency * ((float)maxBrightness + 1))) - 1;
     
