@@ -10,8 +10,8 @@
 //#define TESTING // Uncomment to enable all channel testing
 
 // Board specific variables! Change these per board!,
-const byte boardID = 0x06;
-byte numberOfShiftRegisters = 2;
+const byte boardID = 0x01;
+byte numberOfShiftRegisters = 4;
 #define AC_LIGHTS 1 // Set to 0 for DC lights
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -22,6 +22,7 @@ byte numberOfShiftRegisters = 2;
 
 #define MICROSECONDS_TO_MILLISECONDS 1 / 1000.0
 #define MILLISECONDS_TO_SECONDS 1 / 1000.0
+#define TURN_OFF_PWM_CYCLE_FUDGE_FACTOR 10
 
 // workaround for a bug in WString.h
 #define F(string_literal) (reinterpret_cast<const __FlashStringHelper *>(PSTR(string_literal)))
@@ -519,7 +520,7 @@ void channelBrightnessWithMillisecondsDuration(byte channelNumber, byte brightne
         }
         pwmValues[channelNumber] = brightness;
         
-        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 10; // 10 means fade up has 11/120 seconds to get another command before it shuts off
+        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + TURN_OFF_PWM_CYCLE_FUDGE_FACTOR + 1; // TURN_OFF_PWM_CYCLE_FUDGE_FACTOR means fade up has 11/120 seconds to get another command before it shuts off
         brightnessChangePerDimmingCycle[channelNumber] = 0;
         temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
     }
@@ -555,8 +556,8 @@ void fadeChannelNumberFromBrightnessToBrightnessWithMillisecondsDuration(byte ch
         }
         pwmValues[channelNumber] = startBrightness;
         
-        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + 10; // 11 means fade up has 11/120 seconds to get another command before it shuts off
-        brightnessChangePerDimmingCycle[channelNumber] = (float)(endBrightness - startBrightness) / (dimmingUpdatesCount[channelNumber] - 10);
+        dimmingUpdatesCount[channelNumber] = milliseconds / (1000.0 / pwmFrequency) + TURN_OFF_PWM_CYCLE_FUDGE_FACTOR + 1; // TURN_OFF_PWM_CYCLE_FUDGE_FACTOR means fade up has 11/120 seconds to get another command before it shuts off
+        brightnessChangePerDimmingCycle[channelNumber] = (float)(endBrightness - startBrightness) / (dimmingUpdatesCount[channelNumber] - TURN_OFF_PWM_CYCLE_FUDGE_FACTOR);
         temporaryPWMValues[channelNumber] = pwmValues[channelNumber];
     }
     
@@ -931,7 +932,7 @@ void dimmingUpdate()
         // Update a channel if it is still dimming
         if(dimmingUpdatesCount[i] > 0)
         {
-            if(dimmingUpdatesCount[i] >= 10)
+            if(dimmingUpdatesCount[i] > TURN_OFF_PWM_CYCLE_FUDGE_FACTOR)
             {
                 temporaryPWMValues[i] += brightnessChangePerDimmingCycle[i];
                 pwmValues[i] = temporaryPWMValues[i];
